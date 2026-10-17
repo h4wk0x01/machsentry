@@ -41,6 +41,13 @@ test-results.xml
 test-timings.json
 .turbo/
 .cache/
+
+# Local malware research inputs and generated evidence (never publish samples)
+/amostras/*
+!/amostras/README.md
+/reports/macos/
+/.venv-macho/
+/.venv-unpack/
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 

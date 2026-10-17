@@ -1,9 +1,39 @@
+# facemessenger
+
+Este fork está focado em **análise estática de malware macOS no Windows**, com
+relatório de comportamento inferido, endereços de funções sustentados por
+referências de código, fragmentos AppleScript, score explicável e candidata YARA
+com strings e/ou opcodes. Os curingas preservam os bytes fixos das instruções
+e as extremidades dos padrões; a validação registra amostras detectadas e misses.
+
+O novo núcleo portátil está em [macos_static](macos_static/README.md). Ele fornece
+uma CLI e JSON versionado para a futura integração ao dashboard Unpacked.
+As análises são locais; amostras não são executadas, e IOCs não são contatados.
+O escopo atual é triagem estática com desassemblagem e cobertura explícita,
+sem promessa de engenharia reversa completa ou zero falsos positivos.
+
+```powershell
+python -m venv .venv-unpack
+.\.venv-unpack\Scripts\python.exe -m pip install -e ./macos_static
+.\.venv-unpack\Scripts\python.exe -m facemessenger analyze arquivo.macho --output reports/macos/analise-001
+```
+
+[Guia do núcleo](macos_static/README.md) · [Amostra de referência](amostras/README.md) ·
+[Validação](docs/facemessenger-validation.md) · [Integração futura com Unpacked](docs/facemessenger-integration.md)
+
+O código, as licenças e a documentação do REA de origem permanecem abaixo.
+O pacote npm `rea-agents`, seu MCP e seus comandos continuam com a identidade
+upstream; o módulo Python `facemessenger` é a nova entrada deste fork.
+O projeto está em [h4wk0x01/facemessenger](https://github.com/h4wk0x01/facemessenger).
+
+---
+
 <div align="center">
 
 **English** · [简体中文](docs/readme/README_zh.md) · [繁體中文](docs/readme/README_zh-TW.md) · [日本語](docs/readme/README_ja.md) · [한국어](docs/readme/README_ko.md) · [Türkçe](docs/readme/README_tr.md) · [Русский](docs/readme/README_ru.md) · [Tiếng Việt](docs/readme/README_vi.md) · [ไทย](docs/readme/README_th.md) · [Deutsch](docs/readme/README_de.md) · [Español](docs/readme/README_es.md) · [Français](docs/readme/README_fr.md) · [Українська](docs/readme/README_uk.md) · [Polski](docs/readme/README_pl.md) · [Português (Brasil)](docs/readme/README_pt-BR.md) · [العربية](docs/readme/README_ar.md) · [فارسی](docs/readme/README_fa.md) · [Bahasa Indonesia](docs/readme/README_id.md) · [Italiano](docs/readme/README_it.md)
 · [Ελληνικά](docs/readme/README_el.md)
 
-# REA: Reverse Engineer Anything
+## REA: Reverse Engineer Anything — referência upstream
 
 ### One MCP for reverse engineering across binaries, applications, and runtime behavior.
 
