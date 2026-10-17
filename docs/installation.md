@@ -821,12 +821,21 @@ Windows P0 admits native x86, x86-64, ARMNT (Thumb-2) and ARM64 PE applications 
 selected [raw NMOS 6502 images](raw-binary.md#nmos-6502) with a caller-supplied
 entry at file offset 0, on fixed local NTFS volumes. Other raw CPU families remain
 unsupported on Windows.
+This MachSentry fork additionally admits thin x86-64 and ARM64 Mach-O through
+the same immutable snapshot and native ownership controls. For universal files,
+REA's `extract_artifact` retains slice ranges and digests before importing each
+selected thin image. The report client composes these existing REA operations.
 The npm package bundles native Job Object ownership, protected private runtime
 DACLs, and handle-based path admission; no separate addon installation is needed.
 See the [Windows Ghidra P0 guide](windows-ghidra-p0.md) for verified scope and
 limitations.
 
 Extract Ghidra and install the JDK outside REA, then export absolute paths:
+
+For this fork, `python scripts/machsentry_setup.py` provides an explicit
+project-local alternative: pinned Ghidra/JDK/Node/npm downloads, verified hashes,
+REA build and the report client. It is separate from upstream `rea setup` and
+does not change its bring-your-own policy. See the [fork quick start](../README.md#preparar-o-clone).
 
 ```bash
 export GHIDRA_INSTALL_DIR=/absolute/path/to/ghidra_12.1.4_PUBLIC

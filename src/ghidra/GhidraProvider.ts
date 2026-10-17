@@ -58,6 +58,7 @@ import {
   windowsP0Capabilities,
   GHIDRA_PROVIDER_IDENTITY,
   WINDOWS_P0_NATIVE_PE_ARCHITECTURES,
+  WINDOWS_P0_MACH_O_ARCHITECTURES,
 } from "./GhidraProviderCapabilities.js";
 import {
   createGhidraProviderClient,
@@ -424,6 +425,28 @@ const inspectWindowsP0TargetSupport = (
   target: BinaryTarget,
   diagnostics: Readonly<Record<string, JsonValue>>,
 ): ProviderTargetSupport => {
+  if (isMachOFormat(target.format)) {
+    if (target.format === "mach-o-universal")
+      return {
+        status: "unsupported",
+        code: "architecture_unsupported",
+        reason:
+          "Windows Ghidra imports thin Mach-O slices only. Use extract_artifact to retain each universal slice's source range and digest, then open the selected extracted slice.",
+        diagnostics,
+      };
+    if (
+      target.architecture === undefined ||
+      !WINDOWS_P0_MACH_O_ARCHITECTURES.includes(target.architecture)
+    )
+      return {
+        status: "unsupported",
+        code: "architecture_unsupported",
+        reason:
+          "Windows Ghidra admits thin x86-64 and ARM64 Mach-O targets only.",
+        diagnostics,
+      };
+    return { status: "supported", code: null, reason: null, diagnostics };
+  }
   // The raw 6502 lane uses the same immutable snapshot and native ownership boundary.
   if (target.format === "raw-binary" && target.architecture === "6502")
     return { status: "supported", code: null, reason: null, diagnostics };
@@ -432,7 +455,7 @@ const inspectWindowsP0TargetSupport = (
       status: "unsupported",
       code: "target_format_unsupported",
       reason:
-        "Windows Ghidra P0 accepts native PE and explicitly selected raw 6502 targets only.",
+        "Windows Ghidra P0 accepts native PE, thin x86-64/ARM64 Mach-O, and explicitly selected raw 6502 targets only.",
       diagnostics,
     };
   if (!WINDOWS_P0_NATIVE_PE_ARCHITECTURES.includes(target.architecture))

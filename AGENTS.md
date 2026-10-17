@@ -2,34 +2,45 @@
 
 ## MachSentry sample analysis (default workflow)
 
-This fork's product is MachSentry, a static macOS Mach-O malware analyzer in
-`macos_static/machsentry`. For requests such as "analise este Mach-O", use its
-Python CLI and read [the module guide](macos_static/README.md). The retained REA
-skills, npm commands and native-provider setup describe the separate upstream
-workflow; they are not prerequisites for MachSentry analysis.
+MachSentry specializes REA in static macOS malware analysis. REA's existing MCP
+and Ghidra provider own binary interpretation, references, function boundaries,
+assembly and decompilation. `macos_static/machsentry` consumes those Evidence
+records to produce behavior findings, scores, exports and candidate YARA rules.
+Use the `reverse-engineer-anything` skill and [module guide](macos_static/README.md).
+Do not replace the REA workflow with a standalone strings/disassembly analyzer.
 
 1. Identify the caller-selected sample path. Samples and generated reports are
    ignored by Git and are not included in a fresh clone. If the target is
    ambiguous, ask for its path instead of choosing another sample or downloading
    malware. For ZIP input, preserve the explicit member selection.
-2. Use an existing Python 3.12+ interpreter. If needed, create `.venv-unpack` and
-   install `./macos_static` into it with `python -m pip install -e ./macos_static`.
-   Check `python -m machsentry --version` with that interpreter. Do not assume
-   the host's virtual environment or tools were copied into the VM by Git.
-3. Run `python -m machsentry analyze INPUT --output reports/macos/UNIQUE_RUN`
-   with the environment's interpreter (`.venv-unpack/bin/python` on POSIX,
-   `.venv-unpack\Scripts\python.exe` on Windows). Use a new output directory.
+2. Use Python 3.12+ to run `python scripts/machsentry_setup.py` when the local
+   stack is absent. This explicit fork setup downloads pinned, verified tools
+   into the project, installs locked REA dependencies and builds REA. It does
+   not change global software or copy a Windows environment into macOS.
+   Diagnose the selected provider with
+   `python scripts/machsentry_run.py rea doctor --provider ghidra --json`.
+3. Run `python scripts/machsentry_run.py analyze INPUT --output reports/macos/UNIQUE_RUN`.
+   The report client uses REA's MCP with Ghidra, retaining its original Evidence.
+   Use a new output directory. For further investigation, use REA tools directly;
+   close every session you own after retaining its results.
    The default YARA mode is `auto`; honor explicit modes and supplied positive
    or negative corpora. Do not execute the sample, embedded scripts or IOC URLs.
 4. Verify the exit code and Result envelope, then inspect the completed
    `report.json`. Summarize behavior evidence, function VAs with architecture,
-   extracted scripts, heuristic score, YARA validation and coverage limitations.
+   extracted scripts, Ghidra pseudocode, heuristic score, YARA validation and coverage limitations.
    Link the retained report and exports. Failed or missing analysis remains
    unknown; never claim complete reverse engineering or zero false positives.
 
-Repository instructions guide the assistant; a clone does not install Python,
-dependencies, Codex or an MCP server. The VM's OS and CPU architecture determine
-dependency availability. Keep any missing prerequisites explicit.
+Repository instructions guide the assistant; a clone includes the automatic
+setup, not installed runtimes, samples or Codex. Python is a prerequisite; macOS
+may also need existing Xcode Command Line Tools to build Ghidra's native
+decompiler. Report unavailable provider coverage honestly; never silently fall
+back to the previous independent engine. Decompiled code is recovered pseudocode,
+not authenticated original source or a promise of recompilation.
+
+The user's requested project-local Ghidra/JDK setup is an explicit exception to
+the upstream bring-your-own installation policy below. This exception belongs
+to `scripts/machsentry_setup.py`; preserve upstream `rea setup` semantics.
 
 ## Product and Authority
 

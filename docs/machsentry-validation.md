@@ -1,5 +1,66 @@
 # Validação do MachSentry
 
+## Integração REA/Ghidra: 0.3.0
+
+A versão 0.3.0 substitui o analisador independente pelo cliente do MCP do REA.
+Funções, referências, assembly e pseudocódigo agora vêm do provedor Ghidra.
+Os resultados 0.2 documentados abaixo são históricos e **não foram produzidos
+pelo REA/Ghidra**. O contrato dos novos relatórios é `schema_version: "2.0"`.
+
+Em 17 de outubro de 2026, no Windows x64, o preparo completo
+`python scripts/machsentry_setup.py` terminou com sucesso: downloads verificados,
+npm ci, build do REA, instalação do cliente e diagnóstico Ghidra saudável.
+Foram usados Node 24.18.0, npm 11.16.0, Ghidra 12.1.4 e Temurin JDK 21.0.12.1.
+As ferramentas ficam em `.tools/`, ignorada pelo Git. O comando foi verificado
+neste checkout; o preparo em um clone macOS ainda depende da validação remota.
+
+A CLI pública `rea decompile`, usando o provedor real, recuperou `return 0x2a;`
+de dois Mach-O inertes codificados para o teste, x86_64 e arm64. Os tempos foram
+30,97 s e 21,90 s, respectivamente; os SHA-256 das entradas ficaram iguais.
+São importações novas, com estado de cache do sistema operacional não controlado,
+e não programas compilados por uma toolchain Apple. O verificador reproduzível
+é `scripts/verify-machsentry-ghidra.py`.
+
+Pelo MCP real, um teste benigno sem indicadores terminou em 17,00 s, sem erros,
+com resultado inconclusivo e sem regra YARA. Um Mach-O universal inerte com
+literais artificiais percorreu `inspect_artifact`, `extract_artifact`, abertura
+das slices, inventário, xrefs, resolução de funções e descompilação. Foram
+retidas 61 evidências, oito funções com pseudocódigo, duas arquiteturas e uma
+candidata híbrida. A regra compilou, detectou a fixture selecionada e não
+correspondeu aos dois controles inertes de retorno constante. Fechamento das
+sessões e remoção das slices temporárias foram confirmados no relatório.
+
+Esse segundo teste levou 31,47 s e registrou 1,66 s de CPU do cliente Python e
+197,1 MiB de pico de memória do Python. CPU e pico da família Node/JVM/descompilador
+não foram medidos. O fluxo não chama LLM; tokens usados no desenvolvimento não
+foram medidos. Esses números não são comparáveis aos benchmarks 0.2 abaixo:
+o motor e a cobertura são diferentes, e não houve controle de cache frio/quente.
+
+**A fixture é benigna:** suas funções retornam ponteiros para texto de teste.
+O score 75 e a correspondência YARA são resultados intencionalmente induzidos
+pelos indicadores; não validam precisão, intenção maliciosa ou taxa de falsos
+positivos. Demonstram também a limitação da heurística atual. O pseudocódigo e
+as evidências devem ser examinados antes de uma decisão. Não houve validação
+com um corpus representativo de famílias ou software legítimo.
+
+Esse resultado motivou uma correção do veredito: a heurística v2 retorna
+`high_risk_indicators`, com `maliciousness: "unconfirmed"`, quando há muitos
+indicadores ligados a código. Ela não transforma referências em confirmação de
+malware. As pontuações são mantidas como prioridade de investigação.
+
+Verificações locais adicionais: 50 testes Python passaram, com um teste de symlink ignorado no Windows; seis testes do preparo,
+140 testes TypeScript focados (três exclusivos de macOS ignorados), typecheck/lint,
+checagem de documentação e descoberta dos testes. Um teste preexistente separado
+de criação de symlink não pôde passar nesta conta Windows por `EPERM`; não houve
+mudança de privilégios. A CI inclui Ghidra real em Windows e macOS.
+
+A tentativa de importar a referência Atomic Stealer foi impedida pelo Defender.
+Os eventos 1116/1117 registraram `Trojan:MacOS/Amos.AO!MTB` e quarentena da cópia
+temporária. O relatório retornou falha de abertura, e nenhum pseudocódigo dessa
+amostra foi produzido pelo Ghidra neste computador. Não foram alteradas as
+proteções. O código atual deixa o score indisponível quando nenhuma slice pode
+ser analisada. A análise histórica dessa amostra permanece separada abaixo.
+
 ## Correção do nome: 0.2.1
 
 O nome atual do produto é **MachSentry**; o pacote Python, o módulo e o comando

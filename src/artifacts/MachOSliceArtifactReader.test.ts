@@ -13,6 +13,7 @@ import { openRegularFile } from "../filesystem/RegularFile.js";
 import { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import type { NativeCommandRunner } from "../native/CommandRunner.js";
 import { NativeCommandFailure } from "../native/CommandRunner.js";
+import type { ArtifactEntry } from "./ArtifactReader.js";
 
 const cleanupOwner = (runId: string): ProviderProcessSupervisor => {
   const child = Object.assign(new EventEmitter(), {
@@ -154,15 +155,12 @@ describe("Mach-O command cleanup lifecycle", () => {
   });
 });
 
-describe("MachOSliceArtifactReader", () => {
-  it("keeps a borrowed source usable after idle and active cancelled slice reads", async () => {
-    const root = await createTestTempDirectory("rea-slices-cancelled-");
-    const binary = join(root, "fat");
+describe("Mach-O structural slice inventory", () => {
+  it("reads structural FAT slices without a platform tool and retains source ranges", async () => {
+    const root = await createTestTempDirectory("rea-structural-slices-");
+    const binary = join(root, "universal");
     const x86 = machoImage({ cpu: CPU.x86_64 });
-    const arm = Buffer.concat([
-      Buffer.from(machoImage({ cpu: CPU.arm64 })),
-      Buffer.alloc(160_000, 0x5a),
-    ]);
+    const arm = machoImage({ cpu: CPU.arm64 });
     await writeFile(
       binary,
       fatImage([
@@ -170,99 +168,245 @@ describe("MachOSliceArtifactReader", () => {
         { cpu: CPU.arm64, bytes: arm },
       ]),
     );
-    const handle = await openRegularFile(binary, { symlinks: "reject" });
-    const source = { handle, initial: await handle.stat() };
-    const runner: NativeCommandRunner = {
-      run: () =>
-        Promise.resolve(
-          ok({
-            tool: "lipo",
-            executable: "/usr/bin/lipo",
-            executableSha256: "1".repeat(64),
-            toolVersion: null,
-            versionReason: "fixture",
-            arguments: ["-detailed_info", binary],
-            stdout: `architecture x86_64\n cputype 16777223\n cpusubtype 3\n offset 4096\n size ${String(x86.length)}\n align 2^12 (4096)\narchitecture arm64\n cputype 16777228\n cpusubtype 0\n offset 8192\n size ${String(arm.length)}\n align 2^12 (4096)\n`,
-            stderr: "",
-            stdoutBytes: 1,
-            stderrBytes: 0,
-            exitCode: 0,
-            signal: null,
-          }),
-        ),
-    };
-    const reader = new MachOSliceArtifactReader(binary, {}, runner, source);
-    onTestFinished(async () => {
-      await reader.close();
-      await handle.close();
-    });
-
-    const entries = [];
+    const reader = new MachOSliceArtifactReader(binary, {}, null);
+    onTestFinished(() => reader.close());
+    const entries: ArtifactEntry[] = [];
     for await (const entry of reader.entries()) entries.push(entry);
-    const armEntry = entries.find((entry) => entry.path === "slices/arm64");
-    if (armEntry === undefined) throw new Error("Expected an arm64 slice");
-
-    const idleController = new AbortController();
-    const idle = await reader.open(armEntry, idleController.signal);
-    const idleFailure = new Promise<Error>((resolve) =>
-      idle.once("error", resolve),
-    );
-    idleController.abort(null);
-    await expect(idleFailure).resolves.toMatchObject({
-      reason: "cancelled",
-      cancellation: { reason: null },
-    });
-    expect((await handle.stat()).isFile()).toBe(true);
-
-    const controller = new AbortController();
-    const cancelledRead = await reader.open(armEntry, controller.signal);
-    const iterator = cancelledRead[Symbol.asyncIterator]();
-    const firstChunk = await iterator.next();
-    expect(firstChunk.value).toHaveLength(64 * 1024);
-    controller.abort();
-    await expect(iterator.next()).rejects.toMatchObject({
-      reason: "cancelled",
-    });
-
-    const verifiedEntries = [];
-    for await (const entry of reader.entries()) verifiedEntries.push(entry);
-    const verifiedArmEntry = verifiedEntries.find(
-      (entry) => entry.path === "slices/arm64",
-    );
-    if (verifiedArmEntry === undefined)
-      throw new Error("Expected arm64 after re-verifying the borrowed source");
-    const verifiedChunks: Buffer[] = [];
-    const verifiedRead = await reader.open(verifiedArmEntry);
-    for await (const chunk of verifiedRead)
-      verifiedChunks.push(Buffer.from(chunk));
-    expect(Buffer.concat(verifiedChunks)).toEqual(arm);
-
-    const truncatedController = new AbortController();
-    const truncated = await reader.open(
-      verifiedArmEntry,
-      truncatedController.signal,
-    );
+    expect(
+      entries.map(({ path, byteOffset, declaredSize }) => ({
+        path,
+        byteOffset,
+        declaredSize,
+      })),
+    ).toEqual([
+      { path: "slices/x86_64", byteOffset: 4096, declaredSize: x86.length },
+      { path: "slices/arm64", byteOffset: 8192, declaredSize: arm.length },
+    ]);
+    for (const [index, entry] of entries.entries()) {
+      const stream = await reader.open(entry);
+      const chunks: Buffer[] = [];
+      for await (const chunk of stream) chunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(chunks)).toEqual(
+        Buffer.from(index === 0 ? x86 : arm),
+      );
+      expect(entry.limitations).toContain(
+        "Slice identity and range come from REA's structural Mach-O parser; native lipo cross-check was not performed.",
+      );
+    }
+    expect(reader.provenance()).toEqual([]);
+    await expect(
+      reader.open({ ...entries[0]!, byteOffset: 8192 }),
+    ).rejects.toMatchObject({ reason: "integrity" });
     await truncate(binary, 8193);
-    let readEOF = false;
-    const read = handle.read.bind(handle);
-    vi.spyOn(handle, "read").mockImplementation((async (...args: unknown[]) => {
-      const result = (await Reflect.apply(read, handle, args)) as {
-        bytesRead: number;
-        buffer: Buffer;
-      };
-      if (result.bytesRead === 0) readEOF = true;
-      return result;
-    }) as typeof handle.read);
-    const failed = new Promise<Error>((resolve) =>
-      truncated.once("error", resolve),
-    );
-    truncated.read(0);
-    await expect.poll(() => readEOF).toBe(true);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(truncated.readableLength).toBeGreaterThan(0);
-    truncatedController.abort(null);
-    await expect(failed).resolves.toMatchObject({ reason: "integrity" });
+    await expect(reader.open(entries[0]!)).rejects.toMatchObject({
+      reason: "integrity",
+    });
   });
+
+  it.each(["close", "cancel"] as const)(
+    "joins an active structural header read during %s",
+    async (action) => {
+      const root = await createTestTempDirectory(
+        "rea-structural-slices-settlement-",
+      );
+      const binary = join(root, "universal");
+      await writeFile(
+        binary,
+        fatImage([{ cpu: CPU.arm64, bytes: machoImage({ cpu: CPU.arm64 }) }]),
+      );
+      const handle = await openRegularFile(binary, { symlinks: "reject" });
+      const reader = new MachOSliceArtifactReader(binary, {}, null, {
+        handle,
+        initial: await handle.stat(),
+      });
+      let started!: () => void;
+      let finish!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const read = handle.read.bind(handle);
+      vi.spyOn(handle, "read").mockImplementationOnce((async (
+        ...args: unknown[]
+      ) => {
+        started();
+        await released;
+        return Reflect.apply(read, handle, args);
+      }) as typeof handle.read);
+      onTestFinished(async () => {
+        finish();
+        await reader.close();
+        await handle.close();
+      });
+      const controller = new AbortController();
+      const next = reader
+        .entries(controller.signal)
+        [Symbol.asyncIterator]()
+        .next();
+      await entered;
+      if (action === "cancel") controller.abort("cancel header read");
+      let closed = false;
+      const closing = reader.close().then(() => {
+        closed = true;
+      });
+      await Promise.resolve();
+      expect(closed).toBe(false);
+      finish();
+      await expect(next).rejects.toMatchObject({
+        reason: action === "cancel" ? "cancelled" : "unavailable",
+      });
+      await closing;
+      expect((await handle.stat()).isFile()).toBe(true);
+    },
+  );
+
+  it("rejects structural FAT CPU disagreement and cancellation before inventory", async () => {
+    const root = await createTestTempDirectory(
+      "rea-structural-slices-invalid-",
+    );
+    const binary = join(root, "universal");
+    const bytes = Buffer.from(
+      fatImage([{ cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.arm64 }) }]),
+    );
+    await writeFile(binary, bytes);
+    const reader = new MachOSliceArtifactReader(binary, {}, null);
+    onTestFinished(() => reader.close());
+    await expect(
+      reader.entries()[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({
+      reason: "integrity",
+    });
+    const controller = new AbortController();
+    controller.abort("cancelled by analyst");
+    await expect(
+      reader.entries(controller.signal)[Symbol.asyncIterator]().next(),
+    ).rejects.toMatchObject({ reason: "cancelled" });
+  });
+});
+
+describe("Mach-O borrowed slice streams", () => {
+  it.each(["lipo", "structural"] as const)(
+    "keeps a borrowed source usable after idle and active cancelled slice reads (%s)",
+    async (mode) => {
+      const root = await createTestTempDirectory("rea-slices-cancelled-");
+      const binary = join(root, "fat");
+      const x86 = machoImage({ cpu: CPU.x86_64 });
+      const arm = Buffer.concat([
+        Buffer.from(machoImage({ cpu: CPU.arm64 })),
+        Buffer.alloc(160_000, 0x5a),
+      ]);
+      await writeFile(
+        binary,
+        fatImage([
+          { cpu: CPU.x86_64, bytes: x86 },
+          { cpu: CPU.arm64, bytes: arm },
+        ]),
+      );
+      const handle = await openRegularFile(binary, { symlinks: "reject" });
+      const source = { handle, initial: await handle.stat() };
+      const runner: NativeCommandRunner = {
+        run: () =>
+          Promise.resolve(
+            ok({
+              tool: "lipo",
+              executable: "/usr/bin/lipo",
+              executableSha256: "1".repeat(64),
+              toolVersion: null,
+              versionReason: "fixture",
+              arguments: ["-detailed_info", binary],
+              stdout: `architecture x86_64\n cputype 16777223\n cpusubtype 3\n offset 4096\n size ${String(x86.length)}\n align 2^12 (4096)\narchitecture arm64\n cputype 16777228\n cpusubtype 0\n offset 8192\n size ${String(arm.length)}\n align 2^12 (4096)\n`,
+              stderr: "",
+              stdoutBytes: 1,
+              stderrBytes: 0,
+              exitCode: 0,
+              signal: null,
+            }),
+          ),
+      };
+      const reader = new MachOSliceArtifactReader(
+        binary,
+        {},
+        mode === "lipo" ? runner : null,
+        source,
+      );
+      onTestFinished(async () => {
+        await reader.close();
+        await handle.close();
+      });
+
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      const armEntry = entries.find((entry) => entry.path === "slices/arm64");
+      if (armEntry === undefined) throw new Error("Expected an arm64 slice");
+
+      const idleController = new AbortController();
+      const idle = await reader.open(armEntry, idleController.signal);
+      const idleFailure = new Promise<Error>((resolve) =>
+        idle.once("error", resolve),
+      );
+      idleController.abort(null);
+      await expect(idleFailure).resolves.toMatchObject({
+        reason: "cancelled",
+        cancellation: { reason: null },
+      });
+      expect((await handle.stat()).isFile()).toBe(true);
+
+      const controller = new AbortController();
+      const cancelledRead = await reader.open(armEntry, controller.signal);
+      const iterator = cancelledRead[Symbol.asyncIterator]();
+      const firstChunk = await iterator.next();
+      expect(firstChunk.value).toHaveLength(64 * 1024);
+      controller.abort();
+      await expect(iterator.next()).rejects.toMatchObject({
+        reason: "cancelled",
+      });
+
+      const verifiedEntries = [];
+      for await (const entry of reader.entries()) verifiedEntries.push(entry);
+      const verifiedArmEntry = verifiedEntries.find(
+        (entry) => entry.path === "slices/arm64",
+      );
+      if (verifiedArmEntry === undefined)
+        throw new Error(
+          "Expected arm64 after re-verifying the borrowed source",
+        );
+      const verifiedChunks: Buffer[] = [];
+      const verifiedRead = await reader.open(verifiedArmEntry);
+      for await (const chunk of verifiedRead)
+        verifiedChunks.push(Buffer.from(chunk));
+      expect(Buffer.concat(verifiedChunks)).toEqual(arm);
+
+      const truncatedController = new AbortController();
+      const truncated = await reader.open(
+        verifiedArmEntry,
+        truncatedController.signal,
+      );
+      await truncate(binary, 8193);
+      let readEOF = false;
+      const read = handle.read.bind(handle);
+      vi.spyOn(handle, "read").mockImplementation((async (
+        ...args: unknown[]
+      ) => {
+        const result = (await Reflect.apply(read, handle, args)) as {
+          bytesRead: number;
+          buffer: Buffer;
+        };
+        if (result.bytesRead === 0) readEOF = true;
+        return result;
+      }) as typeof handle.read);
+      const failed = new Promise<Error>((resolve) =>
+        truncated.once("error", resolve),
+      );
+      truncated.read(0);
+      await expect.poll(() => readEOF).toBe(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(truncated.readableLength).toBeGreaterThan(0);
+      truncatedController.abort(null);
+      await expect(failed).resolves.toMatchObject({ reason: "integrity" });
+    },
+  );
 });
 
 describe("universal slices outside the structural index", () => {

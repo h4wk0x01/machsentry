@@ -2,19 +2,26 @@
 
 ## Estado e fronteira do módulo
 
-O MachSentry é um módulo de análise estática de arquivos Mach-O. O núcleo
-Python fica em `macos_static/machsentry`, separado dos adaptadores CLI/MCP do
-REA e do servidor Next.js do Unpacked. A fronteira de entrada é um arquivo local
-selecionado pelo operador; a saída é um relatório JSON de versão 1 e os artefatos
-produzidos pela análise. LIEF concentra a interpretação estrutural do Mach-O,
-Capstone fornece a desmontagem suportada e yara-python valida as regras.
+O MachSentry usa o REA com Ghidra como motor de engenharia reversa. O cliente
+Python em `macos_static/machsentry` compõe ferramentas MCP existentes e produz
+relatórios, scores e candidatas YARA. REA/Ghidra são os donos de funções,
+referências, instruções e pseudocódigo; o cliente preserva os registros Evidence
+e sua procedência. Capstone é um auxiliar para mascarar operandos nos padrões
+YARA, e yara-python compila e verifica essas candidatas.
 
-O comando do núcleo, executado a partir de `macos_static` ou após a instalação do
-pacote, é:
+A entrada é uma amostra local explicitamente selecionada; a saída é o relatório
+JSON versionado e seus artefatos. O worker pode ser iniciado com:
 
 ```text
-python -m machsentry analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
+python scripts/machsentry_run.py analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
 ```
+
+Cada trabalho possui sua sessão MCP, importações temporárias do Ghidra e limpeza.
+Arquivos ZIP precisam de um membro explícito; a importação escreve uma cópia
+local para o REA. Arquivos universais preservam a identidade do contêiner e de
+cada slice extraída pelo REA. Falha do provedor não autoriza substituir a análise
+por strings nem declarar o arquivo benigno. O worker deve finalizar suas sessões
+antes de informar conclusão; falhas e resultados parciais permanecem explícitos.
 
 Esta documentação propõe a integração comercial. Não implementa nem confirma
 endpoints HTTP, uploads, fila, cobrança por créditos, interface do dashboard ou
@@ -64,7 +71,7 @@ O navegador recebe identificadores opacos. Caminhos do sistema de arquivos,
 argumentos do processo, regras de custo e diretórios de saída são resolvidos
 pelo servidor. O worker recebe uma referência privada ao arquivo, identidade
 esperada, opções validadas e um identificador de trabalho; lê os bytes,
-confirma SHA-256 e tamanho e chama o núcleo em um processo isolado.
+confirma SHA-256 e tamanho e inicia o cliente de relatórios com REA/Ghidra em um ambiente isolado.
 
 Uma API possível, ainda não implementada, é:
 
@@ -153,7 +160,7 @@ que reutiliza cache precisa ser explícita.
   worker, leases, reconciliação e autorização por proprietário em cada rota.
 - Definir armazenamento privado, prazo de retenção e exclusão de amostras e
   relatórios. Manter amostras fora de `public/`, do bundle web e do Git.
-- Fixar e testar dependências Python e imagens de implantação. LIEF, Capstone
+- Fixar e testar dependências Python e imagens de implantação. REA, Ghidra, Capstone
   e YARA interpretam bytes não confiáveis; executar o worker com limites de
   tempo, memória, disco e concorrência, sem credenciais do servidor web e sem
   saída de rede durante a análise. Não reutilizar diretórios entre trabalhos.

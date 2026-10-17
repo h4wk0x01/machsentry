@@ -24,6 +24,7 @@ import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { parseConfig } from "../config/parseConfig.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { parseExecutableHeader } from "../domain/binaryTarget.js";
+import { CPU, machoImage } from "../artifacts/apple/MachoImage.fixture.js";
 import { GhidraProvider } from "./GhidraProvider.js";
 import type { GhidraTargetSnapshot } from "./GhidraClient.js";
 import type { GhidraProviderClientFactory } from "./GhidraProviderClient.js";
@@ -399,6 +400,73 @@ describe("Ghidra raw-binary profile", () => {
 });
 
 describe("Ghidra Mach-O slice support", () => {
+  it.each([CPU.x86_64, CPU.arm64])(
+    "admits a parsed thin Mach-O on Windows with read-only snapshot semantics: %j",
+    async (cpu) => {
+      const parsed = parseExecutableHeader(
+        Buffer.from(machoImage({ cpu })),
+        "x64",
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      const target: BinaryTarget = {
+        path: "C:\\fixtures\\sample.macho",
+        sha256: "a".repeat(64),
+        kind: "executable",
+        ...parsed.value,
+      };
+      const ghidra = provider(installationHost("win32"));
+      expect(ghidra.inspectTargetSupport(target)).toMatchObject({
+        status: "supported",
+        diagnostics: {
+          target_format: "mach-o",
+          architecture: parsed.value.architecture,
+        },
+      });
+      const profile = await ghidra.resolveAnalysisProfile(target);
+      if (!profile.ok) throw profile.error;
+      expect(profile.value.profile?.parameters).toMatchObject({
+        windows_macho_import: "thin-digest-bound-read-only-v1",
+        import_mode: "ephemeral-source-immutable",
+        loader: "auto-from-header",
+        language_id: "auto-from-header",
+        no_return_repair: "disabled-windows-p0",
+      });
+      expect(
+        ghidra
+          .capabilities()
+          .find(({ operation }) => operation === "annotate_native_function")
+          ?.available,
+      ).toBe(false);
+    },
+  );
+
+  it("refuses unselected universal containers and 32-bit Mach-O on Windows", () => {
+    const ghidra = provider(installationHost("win32"));
+    expect(
+      ghidra.inspectTargetSupport(executableTarget("mach-o", "x86")),
+    ).toMatchObject({
+      status: "unsupported",
+      code: "architecture_unsupported",
+    });
+    for (const architectures of [["arm64"], ["x86_64", "arm64"]] as const) {
+      expect(
+        ghidra.inspectTargetSupport({
+          path: "C:\\fixtures\\universal",
+          sha256: "a".repeat(64),
+          kind: "executable",
+          format: "mach-o-universal",
+          architecture: "arm64",
+          availableArchitectures: architectures,
+          universalSlice: { offset: 4096, size: 32 },
+        }),
+      ).toMatchObject({
+        status: "unsupported",
+        code: "architecture_unsupported",
+        reason: expect.stringContaining("extract_artifact"),
+      });
+    }
+  });
+
   it("refuses universal targets whose selected slice cannot be enforced", () => {
     const ghidra = provider();
     const universal: BinaryTarget = {

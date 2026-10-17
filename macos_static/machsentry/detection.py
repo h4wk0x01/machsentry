@@ -36,6 +36,8 @@ def generate_rule(data: bytes, digest: str, findings: list[dict], strings: list[
         candidates = []
         for span in available[category].get('indicator_spans', []):
             record = lookup[span['evidence_id']]
+            if record.get('yara_eligible') is False:
+                continue
             position, length = span['character_offset'], span['character_length']
             # Keep context around the actual semantic anchor, never an unrelated prefix.
             if len(record['text']) <= 160:

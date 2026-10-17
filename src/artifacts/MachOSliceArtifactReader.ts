@@ -33,7 +33,7 @@ import {
 } from "../filesystem/RegularFile.js";
 import { readArtifactFileChunks } from "./readArtifactFileChunks.js";
 
-/** Read-only universal Mach-O slice reader backed by native lipo metadata. */
+/** Read-only Mach-O slice reader; macOS also compares native lipo metadata. */
 export class MachOSliceArtifactReader implements ArtifactReader {
   readonly format = "file" as const;
   #command: ArtifactCommand | undefined;
@@ -41,25 +41,43 @@ export class MachOSliceArtifactReader implements ArtifactReader {
   #ownedSource: OwnedFileHandle | undefined;
   #pendingSource: Promise<StableRegularFileDescriptor> | undefined;
   readonly #entries = new Map<string, ArtifactEntry>();
-  readonly #pendingCommands = new Set<Promise<unknown>>();
+  readonly #pendingInspections = new Set<Promise<unknown>>();
   readonly #ownsSource: boolean;
   #closed = false;
   #closePromise: Promise<void> | undefined;
+  private readonly runner: NativeCommandRunner | undefined;
 
   constructor(
     private readonly path: string,
     environment: Readonly<NodeJS.ProcessEnv>,
-    private readonly runner: NativeCommandRunner = new XcrunCommandRunner(
-      environment,
-    ),
+    runner?: NativeCommandRunner | null,
     source?: StableRegularFileDescriptor,
   ) {
     this.#source = source;
     this.#ownsSource = source === undefined;
+    this.runner =
+      runner === null
+        ? undefined
+        : (runner ??
+          (process.platform === "darwin"
+            ? new XcrunCommandRunner(environment)
+            : undefined));
   }
 
   async *entries(signal?: AbortSignal): AsyncIterable<ArtifactEntry> {
+    const pending = this.#inspectEntries(signal);
+    this.#pendingInspections.add(pending);
+    try {
+      yield* await pending;
+    } finally {
+      this.#pendingInspections.delete(pending);
+    }
+  }
+
+  async #inspectEntries(signal?: AbortSignal): Promise<ArtifactEntry[]> {
+    assertArtifactReadActive(signal);
     this.#entries.clear();
+    const entries: ArtifactEntry[] = [];
     const source = await this.#ensureSource();
     await this.#verifySource(source);
     if (this.#closed)
@@ -67,18 +85,56 @@ export class MachOSliceArtifactReader implements ArtifactReader {
         "unavailable",
         "Universal Mach-O reader is closed",
       );
-    const command = this.runner.run(
+    if (this.runner === undefined) {
+      const structural = await readStructuralSlices(
+        source.handle,
+        source.initial.size,
+        signal,
+      );
+      if (this.#closed)
+        throw new ArtifactReaderFailure(
+          "unavailable",
+          "Universal Mach-O reader closed during slice discovery",
+        );
+      await this.#verifySource(source);
+      assertArtifactReadActive(signal);
+      if (structural.status !== "parsed")
+        throw new ArtifactReaderFailure(
+          structural.status === "malformed" ? "integrity" : "format",
+          structural.status === "not-mach-o"
+            ? "Source is not a Mach-O image"
+            : `Mach-O structural slice index is ${structural.status}: ${structural.reason}`,
+        );
+      const nameCounts = new Map<string, number>();
+      for (const { architecture } of structural.slices)
+        nameCounts.set(architecture, (nameCounts.get(architecture) ?? 0) + 1);
+      for (const slice of structural.slices) {
+        const duplicateName = (nameCounts.get(slice.architecture) ?? 0) > 1;
+        const entry: ArtifactEntry = {
+          path: `slices/${slice.architecture}${duplicateName ? `-${String(slice.slice_offset)}` : ""}`,
+          kind: "slice",
+          declaredSize: slice.slice_size,
+          compressedSize: null,
+          executable: true,
+          encrypted: false,
+          byteOffset: slice.slice_offset,
+          declaredSha256: null,
+          unpacked: false,
+          limitations: [
+            "Slice identity and range come from REA's structural Mach-O parser; native lipo cross-check was not performed.",
+          ],
+          adapterKey: `${String(slice.slice_offset)}:${String(slice.slice_size)}`,
+        };
+        this.#entries.set(entry.adapterKey, copyArtifactEntry(entry));
+        entries.push(entry);
+      }
+      return entries;
+    }
+    const captured = await this.runner.run(
       "lipo",
       ["-detailed_info", this.path],
       signal === undefined ? {} : { signal },
     );
-    this.#pendingCommands.add(command);
-    let captured: Awaited<typeof command>;
-    try {
-      captured = await command;
-    } finally {
-      this.#pendingCommands.delete(command);
-    }
     if (!captured.ok)
       throw new ArtifactReaderFailure(
         captured.error.reason === "cancelled" ? "cancelled" : "unavailable",
@@ -116,7 +172,11 @@ export class MachOSliceArtifactReader implements ArtifactReader {
     await this.#verifySource(source);
     const fileSize = source.initial.size;
     const { architectures } = parseLipoOutput(captured.value.stdout, this.path);
-    const structural = await readStructuralSlices(source.handle, fileSize);
+    const structural = await readStructuralSlices(
+      source.handle,
+      fileSize,
+      signal,
+    );
     await this.#verifySource(source);
     if (structural.status === "malformed")
       throw new ArtifactReaderFailure(
@@ -219,8 +279,9 @@ export class MachOSliceArtifactReader implements ArtifactReader {
         adapterKey: `${String(offset)}:${String(sliceSize)}`,
       };
       this.#entries.set(entry.adapterKey, copyArtifactEntry(entry));
-      yield entry;
+      entries.push(entry);
     }
+    return entries;
   }
 
   async open(entry: ArtifactEntry, signal?: AbortSignal): Promise<Readable> {
@@ -277,7 +338,7 @@ export class MachOSliceArtifactReader implements ArtifactReader {
       if (coverage.bytes !== BigInt(size))
         return new ArtifactReaderFailure(
           "integrity",
-          `Mach-O slice size disagrees with lipo metadata: ${entry.path}`,
+          `Mach-O slice size disagrees with inventoried metadata: ${entry.path}`,
         );
       if (signal?.aborted)
         return new ArtifactReaderFailure(
@@ -379,10 +440,10 @@ export class MachOSliceArtifactReader implements ArtifactReader {
   }
 
   async #releaseResources(): Promise<void> {
-    await Promise.allSettled(this.#pendingCommands);
+    await Promise.allSettled(this.#pendingInspections);
     let cleanup: ArtifactReaderFailure["cleanup"];
     try {
-      const failures = (await this.runner.retryCleanup?.()) ?? [];
+      const failures = (await this.runner?.retryCleanup?.()) ?? [];
       if (failures.length > 0)
         cleanup = {
           reason: failures
@@ -500,10 +561,13 @@ export class MachOSliceArtifactReader implements ArtifactReader {
 const readStructuralSlices = async (
   file: FileHandle,
   size: number,
+  signal?: AbortSignal,
 ): Promise<Awaited<ReturnType<typeof readMachoImage>>> => {
   const readAt: ReadAt = async (offset, length) => {
+    assertArtifactReadActive(signal);
     const bytes = Buffer.alloc(length);
     const { bytesRead } = await file.read(bytes, 0, length, offset);
+    assertArtifactReadActive(signal);
     return bytes.subarray(0, bytesRead);
   };
   return readMachoImage(readAt, size);

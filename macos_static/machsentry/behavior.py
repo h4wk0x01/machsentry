@@ -2,7 +2,7 @@
 
 import re
 
-RULESET_VERSION = "1.0.0"
+RULESET_VERSION = "2.0.0"
 SIGNATURE_CATEGORIES = ('credential_prompt', 'keychain_access', 'outbound_upload', 'wallet_collection', 'browser_collection')
 
 # The interpretation owner supplies exact anchor ranges to downstream detection.
@@ -70,31 +70,6 @@ def find_behaviors(strings: list[dict], slice_ids: list[int]) -> list[dict]:
     return findings
 
 
-def attribute_functions(images, findings, strings) -> list[dict]:
-    by_evidence: dict[str, list[dict]] = {}
-    for finding in findings:
-        for evidence_id in finding['evidence_ids']:
-            by_evidence.setdefault(evidence_id, []).append(finding)
-    result = []
-    for image in images:
-        for function in image.functions:
-            relevant = [ref for ref in function.references if ref['evidence_id'] in by_evidence]
-            if not relevant:
-                continue
-            linked = {f['id']: f for ref in relevant for f in by_evidence[ref['evidence_id']]}
-            for finding in linked.values():
-                if hex(function.address) not in finding['function_addresses']:
-                    finding['function_addresses'].append(hex(function.address))
-                finding['confidence'] = 'medium_with_direct_code_references'
-            result.append({"slice": image.index, "architecture": image.architecture,
-                "address": hex(function.address), "end_upper_bound": hex(function.end),
-                "file_offset": function.offset, "names": function.names, "boundary_basis": function.basis,
-                "classification": "suspected_behavior_related", "finding_ids": sorted(linked),
-                "references": relevant, "direct_calls": function.calls,
-                "limitation": "A reference associates code with an indicator; it does not prove execution or malicious intent by itself"})
-    return result
-
-
 def risk_score(findings, coverage_limited: bool) -> dict:
     # Score each slice independently; unrelated slices must not corroborate each other.
     per_slice = {}
@@ -105,12 +80,13 @@ def risk_score(findings, coverage_limited: bool) -> dict:
     points = min(100, sum(contributions.values()))
     strong = {'credential_prompt', 'keychain_access', 'browser_collection', 'wallet_collection', 'outbound_upload'}
     corroborated = {sid: {f['category'] for f in findings if f.get('slice', 0) == sid and f['function_addresses']} & strong for sid in per_slice}
-    likely = any(sum(values.values()) >= 70 and len(corroborated[sid]) >= 3 for sid, values in per_slice.items())
-    verdict = 'likely_malicious' if likely else 'suspicious' if points >= 30 else 'inconclusive'
+    high_risk = any(sum(values.values()) >= 70 and len(corroborated[sid]) >= 3 for sid, values in per_slice.items())
+    verdict = 'high_risk_indicators' if high_risk else 'suspicious' if points >= 30 else 'inconclusive'
     return {"value": points, "maximum": 100, "verdict": verdict,
-            "method": "machsentry-static-heuristic-v1", "calibrated_probability": False,
+            "method": "machsentry-static-heuristic-v2", "calibrated_probability": False,
+            "maliciousness": "unconfirmed",
             "contributions": contributions, "per_slice": per_slice, "coverage_limited": coverage_limited,
-            "explanation": "Maior score entre slices; categorias contadas uma vez por slice. >=70 com referências de código em >=3 categorias fortes na mesma slice: likely_malicious; >=30: suspicious; restante: inconclusive. Nenhum resultado certifica arquivo benigno."}
+            "explanation": "Maior score entre slices; categorias contadas uma vez por slice. >=70 com referências de código em >=3 categorias fortes na mesma slice: high_risk_indicators; >=30: suspicious; restante: inconclusive. Referências confirmam associação com indicadores, não comportamento malicioso. A maliciosidade permanece não confirmada; nenhum resultado certifica arquivo benigno."}
 
 
 def scripts_and_iocs(strings: list[dict]) -> tuple[list[dict], list[dict]]:
@@ -128,6 +104,7 @@ def scripts_and_iocs(strings: list[dict]) -> tuple[list[dict], list[dict]]:
                 if kind == 'ipv4' and any(int(part) > 255 for part in match.group().split('.')):
                     continue
                 iocs.append({"kind": kind, "value": match.group(), "evidence_id": record['id'],
-                             "offset": record['offset'] + match.start() * (2 if record['encoding'] == 'utf-16le' else 1),
+                             "offset": (record['offset'] + match.start() * (2 if record['encoding'] == 'utf-16le' else 1))
+                             if record['offset'] is not None else None,
                              "classification": "unverified_candidate", "contacted": False})
     return scripts, iocs

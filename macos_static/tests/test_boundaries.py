@@ -12,8 +12,6 @@ import warnings
 import zipfile
 
 from machsentry.behavior import find_behaviors, risk_score
-from machsentry.evidence import correlate, extract_strings
-from machsentry.macho import Function, Image, Section, parse_images
 from machsentry.source import AnalysisError, Limits, load_source
 
 
@@ -119,42 +117,6 @@ class SourceAdmissionTests(BoundaryAssertions):
                     "invalid_input", lambda: load_source(path, Limits(), member=member))
 
 
-class MachoAdmissionTests(BoundaryAssertions):
-    def test_recognized_but_truncated_headers_are_invalid(self):
-        for data in (thin_header()[:4], thin_header()[:27], thin_header()[:31]):
-            with self.subTest(length=len(data)):
-                self.assert_analysis_error(
-                    "invalid_macho", lambda: parse_images(data, Limits()))
-
-    def test_load_commands_cannot_claim_missing_bytes(self):
-        for data in (
-            thin_header(commands=1, command_bytes=8),
-            thin_header(commands=2, command_bytes=8) + struct.pack("<II", 0, 8),
-            thin_header(commands=1, command_bytes=8) + struct.pack("<II", 0, 0),
-        ):
-            with self.subTest(data=data.hex()):
-                self.assert_analysis_error(
-                    "invalid_macho", lambda: parse_images(data, Limits()))
-
-    def test_universal_slices_must_not_overlap(self):
-        data = bytearray(144)
-        struct.pack_into(">II", data, 0, 0xCAFEBABE, 2)
-        struct.pack_into(">IIIII", data, 8, 0x01000007, 3, 64, 64, 4)
-        struct.pack_into(">IIIII", data, 28, 0x01000007, 3, 80, 64, 4)
-        data[64:96] = thin_header()
-        data[80:112] = thin_header()
-        self.assert_analysis_error(
-            "invalid_macho", lambda: parse_images(bytes(data), Limits()))
-
-    def test_universal_and_embedded_cpu_identity_must_agree(self):
-        data = bytearray(64)
-        struct.pack_into(">II", data, 0, 0xCAFEBABE, 1)
-        struct.pack_into(">IIIII", data, 8, 0x0100000C, 0, 32, 32, 4)
-        data[32:] = thin_header()
-        self.assert_analysis_error(
-            "invalid_macho", lambda: parse_images(bytes(data), Limits()))
-
-
 class VerdictTests(unittest.TestCase):
     def test_no_indicators_never_certify_benign_even_with_full_coverage(self):
         for partial in (False, True):
@@ -178,69 +140,6 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(single["contributions"], universal["contributions"])
         self.assertEqual(single["verdict"], universal["verdict"])
 
-
-class DirectReferenceTests(unittest.TestCase):
-    def synthetic_image(self, code, architecture):
-        text = b"synthetic indicator\0"
-        string_offset = 64
-        data = code + b"\0" * (string_offset - len(code)) + text
-        function = Function(0x1000, 0x1000 + len(code), 0, ["fixture"], ["synthetic"])
-        image = Image(0, architecture, 0, len(data), [
-            Section("__TEXT,__text", 0x1000, 0, len(code), True),
-            Section("__TEXT,__cstring", 0x2080, string_offset, len(text), False),
-        ], [function], {"encrypted": False}, [])
-        strings, coverage = extract_strings(data, [image], Limits())
-        self.assertEqual(coverage["count"], 1)
-        self.assertEqual(strings[0]["offset"], string_offset)
-        self.assertEqual(strings[0]["address"], "0x2080")
-        return data, image, function, strings
-
-    def test_x86_rip_reference_preserves_instruction_and_string_coordinates(self):
-        code = b"\x48\x8d\x3d" + struct.pack("<i", 0x2080 - (0x1000 + 7)) + b"\xc3"
-        data, image, function, strings = self.synthetic_image(code, "x86_64")
-        result = correlate(data, image, strings, Limits())
-        self.assertEqual(result["references"], 1)
-        reference = function.references[0]
-        self.assertEqual(reference["evidence_id"], strings[0]["id"])
-        self.assertEqual(reference["instruction_address"], "0x1000")
-        self.assertEqual(reference["target_address"], "0x2080")
-        self.assertEqual(reference["file_offset"], 0)
-        self.assertEqual(reference["bytes"], code[:7].hex())
-        self.assertEqual(reference["target_delta"], 0)
-
-    def test_references_do_not_cross_universal_slice_identity(self):
-        code = b"\x48\x8d\x3d" + struct.pack("<i", 0x2080 - (0x1000 + 7)) + b"\xc3"
-        data, image, function, strings = self.synthetic_image(code, "x86_64")
-        unrelated = [{**strings[0], "slice": 1, "id": "different-slice"}]
-        result = correlate(data, image, unrelated, Limits())
-        self.assertEqual(result["references"], 0)
-        self.assertEqual(function.references, [])
-
-    def test_arm64_adrp_add_resolves_a_direct_reference(self):
-        # adrp x0, 0x2000; add x1, x0, #0x80; ret
-        code = struct.pack("<III", 0xB0000000, 0x91020001, 0xD65F03C0)
-        data, image, function, strings = self.synthetic_image(code, "arm64")
-        result = correlate(data, image, strings, Limits())
-        self.assertEqual(result["references"], 1)
-        self.assertEqual(function.references[0]["instruction_address"], "0x1004")
-        self.assertEqual(function.references[0]["target_address"], "0x2080")
-
-    def test_arm64_address_base_is_invalidated_by_register_clobbers(self):
-        # Writing W0 also overwrites X0; neither form can retain the ADRP base.
-        for name, clobber in (("x0", 0xD2800000), ("w0", 0x52800000)):
-            with self.subTest(register=name):
-                code = struct.pack("<IIII", 0xB0000000, clobber, 0x91020001, 0xD65F03C0)
-                data, image, function, strings = self.synthetic_image(code, "arm64")
-                result = correlate(data, image, strings, Limits())
-                self.assertEqual(result["references"], 0)
-                self.assertEqual(function.references, [])
-
-    def test_string_retention_limit_is_partial_not_a_clean_result(self):
-        data, image, _, _ = self.synthetic_image(b"\xc3", "x86_64")
-        strings, coverage = extract_strings(data, [image], replace(Limits(), max_strings=0))
-        self.assertEqual(strings, [])
-        self.assertEqual(coverage["status"], "partial")
-        self.assertTrue(coverage["reason"])
 
 
 if __name__ == "__main__":

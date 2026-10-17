@@ -17,7 +17,8 @@ additional permission flag or degraded mode is required.
 - Node.js 22.x (>=22.19), 24.x (>=24.11), or 26+;
 - an operator-installed Ghidra 12.1.x distribution (verified with 12.1.4);
 - a 64-bit full JDK inside that installation's declared Java range (JDK 21 or newer, with no maximum, for current 12.1 releases);
-- an explicit native, non-managed x86, x86-64, ARMNT (Thumb-2) or ARM64 PE application/DLL, or a
+- an explicit native, non-managed x86, x86-64, ARMNT (Thumb-2) or ARM64 PE application/DLL,
+  a thin x86-64 or ARM64 Mach-O image, or a
   [raw NMOS 6502 image](raw-binary.md#nmos-6502) with a caller-supplied entry; and
 - the 26 read-only Ghidra inventory, memory, and function-analysis operations.
 
@@ -25,8 +26,8 @@ Loaded memory reads and file offsets preserve Ghidra's observed source mappings.
 PE load-image inspection returns an explicit unsupported attestation status.
 Independent verification covers admitted DOS MZ, explicit COM, and explicit
 [raw-binary imports](raw-binary.md) on their supported hosts, including the
-admitted raw NMOS 6502 mapping on Windows. Windows P0 admission remains limited
-to native PE and raw NMOS 6502 images. For x64 PE
+admitted raw NMOS 6502 mapping on Windows. Windows admission also includes thin
+x86-64/ARM64 Mach-O static imports. For x64 PE
 NativeAOT RTR 9.1, the read-only snapshot parser can report metadata through
 `inspect_native_load_image` and `inspect_native_data_type` without a JAR or
 database mutation: MethodTable relationships, virtual slots and frozen strings.
@@ -38,6 +39,40 @@ This boundary does not establish general Windows feature parity. Ghidra GUI
 state, annotations, other target architectures and formats, and Hopper-only
 operations remain unavailable through this provider. Managed PE/CLI inspection
 uses its separate execution-free provider.
+
+### Mach-O analysis in this fork
+
+MachSentry uses this REA Ghidra provider for static disassembly, references,
+function discovery and decompilation of thin x86-64/ARM64 Mach-O files. The
+Mach-O loader and language are selected from the header unless the caller
+supplies a supported explicit language selection. Original bytes remain
+unchanged; no macOS application, AppleScript, or embedded command is executed.
+The profile records `windows_macho_import: thin-digest-bound-read-only-v1`.
+
+For universal Mach-O files, first call `inspect_artifact` and `extract_artifact`
+through REA, retaining the inventory Evidence, then open each selected extracted
+slice with Ghidra. Use `provider_id: auto` for the container session and explicit
+`provider_id: ghidra` for each thin slice. Direct universal imports remain
+unsupported on Windows because the Ghidra importer cannot enforce a slice
+choice. REA's existing structural Mach-O reader now inventories and extracts
+slices on Windows and Linux without `lipo`; macOS keeps its independent `lipo`
+comparison. The structural parser rejects malformed tables, out-of-bounds ranges
+and disagreement between FAT declarations and thin headers. Unsupported
+structures remain failures rather than being guessed.
+
+Inventory occurrences retain `source_location.offset` and `length`; extraction
+retains each file's SHA-256 and path. These are distinct from the original
+container's digest. Reopening a slice commits the Ghidra session to that slice's
+digest through the same immutable native snapshot and imported-program readback
+used by PE. Duplicate architecture labels receive a source-offset suffix, so
+different slices are never collapsed into one output path.
+
+These controls preserve input identity and cleanup; they do not sandbox the
+Ghidra parser. Engine execution still has the analyst's Windows authority.
+Thin Mach-O admission does not enable annotations, target execution, a macOS
+runtime, or other unverified Windows formats. Source tests exercise admission,
+FAT extraction, ranges and digests; real-provider validation must separately
+establish successful import and decompilation for the selected sample.
 
 Raw 6502 imports retain the same native filesystem and process ownership
 requirements. The complete image must fit in the 16-bit address space; no
@@ -134,7 +169,7 @@ The loader validates package version, ABI, Node-API compatibility, PE machine,
 and artifact SHA-256 before loading the package-owned addon. Native failure
 reasons remain distinct from a valid installation and an unsupported target.
 
-PE header classification and SHA-256 come from the same open file. The Windows
+Executable header classification and SHA-256 come from the same open file. The Windows
 provider admits native x86, x86-64, ARMNT (Thumb-2) and ARM64 PE applications and DLLs and rejects unsupported roles,
 architectures, managed images, and malformed headers. The original selected
 source coordinate is preserved for native admission. The original COFF machine is

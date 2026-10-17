@@ -1,49 +1,61 @@
 # MachSentry
 
-Este fork está focado em **análise estática de malware macOS**, com núcleo Python portátil,
-relatório de comportamento inferido, endereços de funções sustentados por
-referências de código, fragmentos AppleScript, score explicável e candidata YARA
-com strings e/ou opcodes. Os curingas preservam os bytes fixos das instruções
-e as extremidades dos padrões; a validação registra amostras detectadas e misses.
+Fork do **REA** especializado em análise estática de malware macOS. O motor de
+engenharia reversa é o **REA com seu provedor Ghidra**: funções, referências,
+assembly e pseudocódigo vêm das ferramentas existentes do REA. O módulo Python
+consome essas evidências pelo MCP e acrescenta relatório de comportamento,
+fragmentos AppleScript, score explicável e candidatas YARA com strings/opcodes.
 
-O novo núcleo portátil está em [macos_static](macos_static/README.md). Ele fornece
-uma CLI e JSON versionado para a futura integração ao dashboard Unpacked.
-As análises são locais; amostras não são executadas, e IOCs não são contatados.
-O escopo atual é triagem estática com desassemblagem e cobertura explícita,
-sem promessa de engenharia reversa completa ou zero falsos positivos.
+As amostras e os scripts recuperados não são executados; IOCs não são contatados.
+O relatório distingue evidência observada, comportamento inferido e cobertura
+incompleta. Pseudocódigo não é o fonte original, e a validação de uma YARA é
+limitada ao corpus examinado; não há garantia de zero falsos positivos.
+
+## Preparar o clone
+
+Com Python 3.12+ instalado, no Windows:
 
 ```powershell
-python -m venv .venv-unpack
-.\.venv-unpack\Scripts\python.exe -m pip install -e ./macos_static
-.\.venv-unpack\Scripts\python.exe -m machsentry analyze arquivo.macho --output reports/macos/analise-001
-```
-
-Em um terminal Linux/macOS, com Python 3.12+ e dependências compatíveis com o
-sistema e a arquitetura usados:
-
-```bash
 git clone https://github.com/h4wk0x01/machsentry.git
 cd machsentry
-python3 -m venv .venv-unpack
-.venv-unpack/bin/python -m pip install -e ./macos_static
-.venv-unpack/bin/python -m machsentry --version
+python scripts/machsentry_setup.py
+python scripts/machsentry_run.py rea doctor --provider ghidra --json
+python scripts/machsentry_run.py analyze amostras/arquivo.macho --output reports/macos/analise-001
 ```
 
-Abra a raiz do clone como projeto no Codex e coloque a amostra em `amostras/`
-dentro da VM. Um pedido inicial pode ser: "Analise estaticamente
-`amostras/arquivo.macho` com MachSentry e gere o relatório com funções, score e
-YARA". O `AGENTS.md` orienta esse fluxo. O clone inclui código, testes e
-instruções; as amostras, relatórios e ambiente virtual precisam existir
-localmente. Esta configuração em UTM ainda não foi validada.
+No macOS, use `python3` nos mesmos comandos. O preparo baixa Ghidra, JDK e
+Node/npm com versões e hashes fixados, mantém as ferramentas dentro do projeto,
+instala dependências e compila o REA. Não exige procurar e baixar o Ghidra
+manualmente. Se a distribuição não incluir o descompilador nativo do Mac, o
+preparo usa as Xcode Command Line Tools já instaladas para compilá-lo.
+A execução em macOS/UTM precisa ser validada nesse sistema; testes no Windows
+não demonstram compatibilidade de uma VM específica.
 
-[Guia do núcleo](macos_static/README.md) · [Amostra de referência](amostras/README.md) ·
+O clone contém o código e esse preparo automatizado. As dependências instaladas,
+amostras, projetos temporários do Ghidra e relatórios ficam fora do Git.
+Coloque a amostra em `amostras/` e abra a raiz do projeto no seu agente. Um pedido
+possível é: “Analise estaticamente `amostras/arquivo.macho` usando REA/Ghidra e
+mostre funções, pseudocódigo, score e YARA”. O `AGENTS.md` orienta esse fluxo.
+
+## Usar o REA diretamente
+
+```text
+python scripts/machsentry_run.py rea mcp
+python scripts/machsentry_run.py rea decompile amostras/arquivo.macho --procedure NOME_DA_FUNCAO --provider ghidra
+```
+
+O primeiro comando inicia o MCP oficial deste checkout do REA. Registre-o no
+cliente de sua escolha com caminhos absolutos; o launcher fornece a configuração
+local do Ghidra e do Java. O segundo exemplifica a CLI existente do REA. Para
+arquivos universais, extraia a arquitetura selecionada com `extract_artifact`
+antes de abrir a sessão Ghidra; o cliente de relatórios compõe esse fluxo.
+
+[Guia dos relatórios](macos_static/README.md) · [Amostra de referência](amostras/README.md) ·
 [Validação](docs/machsentry-validation.md) · [Integração futura com Unpacked](docs/machsentry-integration.md)
 
-O código, as licenças e a documentação do REA de origem permanecem abaixo.
-O pacote npm `rea-agents`, seu MCP e seus comandos continuam com a identidade
-upstream; o módulo Python `machsentry` é a nova entrada deste fork.
-As propostas automáticas de release do pacote npm ficam restritas ao upstream.
-O projeto está em [h4wk0x01/machsentry](https://github.com/h4wk0x01/machsentry).
+O código, as licenças e a documentação upstream do REA permanecem abaixo.
+A identidade técnica `rea-agents` é mantida; MachSentry é o produto deste fork.
+As propostas automáticas de release npm continuam restritas ao upstream.
 
 ---
 

@@ -31,9 +31,12 @@ export const createReader = (
     case "asar":
       return new AsarArtifactReader(path);
     case "mach-o-universal":
-      return process.platform === "darwin"
-        ? new MachOSliceArtifactReader(path, environment, undefined, rootSource)
-        : undefined;
+      return new MachOSliceArtifactReader(
+        path,
+        environment,
+        undefined,
+        rootSource,
+      );
     case "dmg":
       if (process.platform !== "darwin") return undefined;
       return new NativeDmgArtifactReader(path, environment);
@@ -72,9 +75,7 @@ export const inventoryCoverage = (
   if (format === "mach-o-universal")
     return {
       coverage: { scope: "container-entries", status: "unknown" },
-      limitations: [
-        "Universal Mach-O slices require the native macOS lipo adapter.",
-      ],
+      limitations: ["Universal Mach-O slice inventory is unavailable."],
     };
   if (isZipPackageFormat(format) || format === "directory" || format === "asar")
     return {

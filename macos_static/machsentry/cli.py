@@ -10,6 +10,7 @@ import time
 from . import __version__
 from .metrics import peak_memory_bytes
 from .render import function_assembly, markdown
+from .rea_client import ReaOptions
 from .service import analyze
 from .source import AnalysisError, Limits, load_source, read_regular
 
@@ -25,6 +26,14 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
         assembly, truncated = function_assembly(data, report)
         report['coverage']['assembly_export'] = {"truncated": truncated, "max_bytes": 2 * 1024 * 1024}
         exports = {'functions.asm.txt': assembly}
+        for index, function in enumerate(report['functions']):
+            if function.get('pseudocode'):
+                exports[f'function-{index:03d}-{function["architecture"]}.pseudo.c.txt'] = function['pseudocode']
+        evidence = {record['evidence_id']: record for record in report.get('rea', {}).get('records', [])}
+        for index, bundle in enumerate(report.get('rea', {}).get('evidence_bundles', [])):
+            complete = {key: value for key, value in bundle.items() if key != 'record_ids'}
+            complete['records'] = [evidence[identifier] for identifier in bundle['record_ids']]
+            exports[f'rea-evidence-{index:03d}.json'] = json.dumps(complete, ensure_ascii=False, indent=2) + '\n'
         if report['yara']['rule'] is not None:
             filename = 'candidate-rejected.yar.txt' if report['yara']['status'] in ('rejected', 'related_samples_missed') else 'detection.yar'
             exports[filename] = report['yara']['rule']
@@ -45,12 +54,12 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog='machsentry', description='Offline static Mach-O malware triage')
+    parser = argparse.ArgumentParser(prog='machsentry', description='Static Mach-O malware reports using REA/Ghidra MCP')
     parser.add_argument('--version', action='version', version=__version__)
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('analyze')
     command.add_argument('path', type=Path)
-    command.add_argument('--member', help='Exact ZIP member; decoded in memory, never extracted')
+    command.add_argument('--member', help='Exact ZIP member; staged in an owned temporary file for static REA import')
     command.add_argument('--zip-password', help='Password for the explicitly selected ZIP member')
     command.add_argument('--output', type=Path, required=True, help='New output directory (no overwrites)')
     command.add_argument('--benign-file', type=Path, action='append', default=[], help='Explicit negative-corpus file; repeatable')
@@ -58,11 +67,18 @@ def main(argv=None) -> int:
     command.add_argument('--yara-mode', choices=('auto', 'hybrid', 'strings', 'opcodes'), default='auto',
                          help='auto uses hybrid strings+instructions when sufficient; explicit modes never silently fall back')
     command.add_argument('--json', action='store_true', help='Return the complete Result/report envelope on stdout')
+    command.add_argument('--rea-root', type=Path, help='Built REA checkout (default: this repository)')
+    command.add_argument('--rea-node', help='Explicit Node executable for the REA MCP server')
+    command.add_argument('--architecture', choices=('x86_64', 'arm64', 'x86', 'arm'), help='Analyze only this exact REA-reported slice')
+    command.add_argument('--max-functions', type=int, default=64, help='Per-slice decompiler work budget; omitted functions stay unknown')
+    command.add_argument('--rea-timeout', type=float, default=900, help='Seconds per REA request including initial Ghidra import')
     args = parser.parse_args(argv)
     started, cpu_started = time.perf_counter(), time.process_time()
     try:
         if args.output.exists():
             raise AnalysisError('output_exists', 'Output directory already exists; select a new run directory')
+        if args.max_functions < 1 or args.rea_timeout <= 0:
+            raise AnalysisError('invalid_input', '--max-functions and --rea-timeout must be positive')
         limits = Limits()
         if len(args.benign_file) + len(args.related_file) > 128:
             raise AnalysisError('resource_limit', 'Validation corpora exceed 128 explicit files')
@@ -73,12 +89,19 @@ def main(argv=None) -> int:
                 destination.append((str(path.absolute()), blob))
                 retained += len(blob)
         source = load_source(args.path, limits, args.member, args.zip_password)
-        report = analyze(source, limits, negatives, args.yara_mode, related)
+        report = analyze(source, limits, negatives, args.yara_mode, related,
+                         ReaOptions(root=args.rea_root, node=args.rea_node, architecture=args.architecture,
+                                    request_timeout_seconds=args.rea_timeout, max_decompiled_functions=args.max_functions))
         report['metrics'].update({"worker_elapsed_before_publication_seconds": round(time.perf_counter() - started, 6),
             "worker_cpu_before_publication_seconds": round(time.process_time() - cpu_started, 6),
-            "process_family_peak_memory_bytes": peak_memory_bytes(), "child_processes": 0,
-            "runtime_llm_tokens": 0, "unmeasured": ["agent development tokens", "Python interpreter startup", "publication cost"]})
+            "python_peak_memory_bytes": peak_memory_bytes(),
+            "runtime_llm_tokens": 0})
         outputs = publish(report, source.data, args.output)
+        if report['analysis_status'] == 'failed':
+            print(json.dumps({'ok': False, 'error': report.get('error', {'code': 'rea_analysis_failed',
+                'message': 'REA/Ghidra analysis or owned cleanup failed; retained evidence is in the report'}),
+                'outputs': outputs, **({'partial_report': report} if args.json else {})}, ensure_ascii=True))
+            return 2
         value = report if args.json else {"artifact": report['artifact'], "risk": report['risk'],
             "function_count": len(report['functions']), "script_count": len(report['scripts']),
             "yara_status": report['yara']['status'], "metrics": report['metrics']}

@@ -4,13 +4,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "machsentry"
-version = "0.2.1"
-description = "Offline, evidence-linked static analysis of macOS Mach-O malware"
+version = "0.3.0"
+description = "Static macOS malware reports over REA/Ghidra MCP Evidence"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = ["lief==1.0.0", "capstone==5.0.9", "yara-python==4.5.4"]
+dependencies = ["mcp==2.3.0", "capstone==5.0.9", "yara-python==4.5.4"]
 
 [project.urls]
 Repository = "https://github.com/h4wk0x01/machsentry"

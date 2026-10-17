@@ -10,12 +10,13 @@ import zipfile
 
 
 class AnalysisError(Exception):
-    def __init__(self, code: str, message: str):
+    def __init__(self, code: str, message: str, *, details: dict | None = None):
         super().__init__(message)
         self.code = code
+        self.details = details
 
     def as_dict(self) -> dict:
-        return {"code": self.code, "message": str(self)}
+        return {"code": self.code, "message": str(self), **({'details': self.details} if self.details else {})}
 
 
 @dataclass(frozen=True)
@@ -24,11 +25,7 @@ class Limits:
     max_file_bytes: int = 32 * 1024 * 1024
     max_strings: int = 20_000
     max_string_bytes: int = 2 * 1024 * 1024
-    max_instructions: int = 2_000_000
     max_references: int = 50_000
-    max_functions: int = 100_000
-    max_symbols: int = 100_000
-    max_expanded_symbol_bytes: int = 8 * 1024 * 1024
 
 
 @dataclass(frozen=True)

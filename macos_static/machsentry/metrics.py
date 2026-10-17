@@ -1,4 +1,4 @@
-"""Process peak memory; this worker never starts children."""
+"""Peak memory of this Python process; excludes REA/JVM/decompiler children."""
 
 import sys
 

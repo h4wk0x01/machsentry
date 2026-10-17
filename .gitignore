@@ -41,6 +41,7 @@ test-results.xml
 test-timings.json
 .turbo/
 .cache/
+/.tools/
 
 # Local malware research inputs and generated evidence (never publish samples)
 /amostras/*

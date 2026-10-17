@@ -4,7 +4,16 @@ from collections import Counter, deque
 import capstone as cs
 from capstone import arm64_const as arm, x86_const as x86
 
-from .evidence import decoder
+
+def decoder(architecture: str):
+    if architecture == 'x86_64':
+        engine = cs.Cs(cs.CS_ARCH_X86, cs.CS_MODE_64)
+    elif architecture == 'arm64':
+        engine = cs.Cs(cs.CS_ARCH_ARM64, cs.CS_MODE_LITTLE_ENDIAN)
+    else:
+        return None
+    engine.detail = True
+    return engine
 
 
 MIN_BYTES = 24

@@ -228,6 +228,9 @@ export const resolveGhidraAnalysisProfile = async (
           ...(target.availableArchitectures ?? []),
         ].sort(),
         import_mode: "ephemeral-source-immutable",
+        ...(installation.platform === "win32" && target.format === "mach-o"
+          ? { windows_macho_import: "thin-digest-bound-read-only-v1" }
+          : {}),
         ...(target.format === "pe"
           ? { pdb_observations: "program-info-v5" }
           : {}),
