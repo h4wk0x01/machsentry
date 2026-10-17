@@ -1,11 +1,28 @@
-# Validação do facemessenger 0.2.0
+# Validação do MachSentry
+
+## Correção do nome: 0.2.1
+
+O nome atual do produto é **MachSentry**; o pacote Python, o módulo e o comando
+são `machsentry`. A mudança corrige o nome recebido por transcrição, sem alterar
+as heurísticas, o parser ou a seleção de opcodes.
+
+Os 48 testes passaram novamente no Windows após a instalação editável do novo
+pacote. `machsentry --version` retornou `0.2.1`, inclusive após a remoção do
+pacote anterior do ambiente virtual. A wheel foi construída a partir de uma
+cópia limpa das fontes e inspecionada: seus 18 arquivos contêm apenas o novo
+pacote, seus metadados e a licença, com o entry point `machsentry.cli:main`.
+
+## Execução de referência 0.2.0
+
+Os registros desta seção pertencem à versão anterior à correção do nome.
+Os diretórios de evidências e identificadores históricos foram preservados.
 
 Execução local em **17 de outubro de 2026**, Windows, Python 3.12, LIEF 1.0.0,
 Capstone 5.0.9 e yara-python 4.5.4. O novo núcleo é Python independente; não foram
 executados build, testes, typecheck ou verificadores npm do REA upstream. O host
 não tinha npm nem node_modules. A configuração de CI Windows/Linux acompanha
 o módulo; seu resultado remoto deve ser consultado no GitHub Actions.
-Linux não foi validado localmente. A [CI do módulo no commit 82d2988fc](https://github.com/h4wk0x01/facemessenger/actions/runs/39002576259)
+Linux não foi validado localmente. A [CI do módulo no commit 82d2988fc](https://github.com/h4wk0x01/machsentry/actions/runs/39002576259)
 passou no Windows e no Ubuntu, com os 48 testes em cada plataforma.
 
 O formatter fixado no repositório (`oxfmt` 0.72.0) validou os arquivos ajustados.
@@ -174,4 +191,4 @@ O pacote fornece a base funcional local, sem autenticação, upload HTTP,
 fila, créditos ou integração visual implantada. Antes de produção paga,
 precisa de isolamento externo de workers, validação em corpus amplo e uma
 política de cobrança/retentativas implementada conforme o
-[contrato de integração](facemessenger-integration.md).
+[contrato de integração](machsentry-integration.md).

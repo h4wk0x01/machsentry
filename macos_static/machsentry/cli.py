@@ -45,7 +45,7 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(prog='facemessenger', description='Offline static Mach-O malware triage')
+    parser = argparse.ArgumentParser(prog='machsentry', description='Offline static Mach-O malware triage')
     parser.add_argument('--version', action='version', version=__version__)
     commands = parser.add_subparsers(dest='command', required=True)
     command = commands.add_parser('analyze')

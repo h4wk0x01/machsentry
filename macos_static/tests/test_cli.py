@@ -12,9 +12,9 @@ from unittest.mock import patch
 import zipfile
 
 import yara
-from facemessenger.cli import publish
-from facemessenger.service import analyze
-from facemessenger.source import AnalysisError, Limits, load_source
+from machsentry.cli import publish
+from machsentry.service import analyze
+from machsentry.source import AnalysisError, Limits, load_source
 
 
 def fixture(suspicious=False):
@@ -62,7 +62,7 @@ class CliTests(unittest.TestCase):
         self.negative.write_bytes(fixture(False))
 
     def run_cli(self, *arguments):
-        result = subprocess.run([sys.executable, '-m', 'facemessenger', 'analyze', *map(str, arguments)],
+        result = subprocess.run([sys.executable, '-m', 'machsentry', 'analyze', *map(str, arguments)],
                                 capture_output=True, text=True, timeout=30)
         return result.returncode, json.loads(result.stdout)
 

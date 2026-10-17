@@ -1,6 +1,6 @@
 import unittest
 
-from facemessenger.behavior import risk_score
+from machsentry.behavior import risk_score
 
 
 class SliceVerdictTests(unittest.TestCase):

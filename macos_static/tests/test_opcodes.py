@@ -6,7 +6,7 @@ import unittest
 
 import yara
 
-from facemessenger.opcodes import MAX_FUNCTION_SCAN_BYTES, build_opcode_patterns
+from machsentry.opcodes import MAX_FUNCTION_SCAN_BYTES, build_opcode_patterns
 
 
 def attributed_function(code, site, reference_bytes, architecture='x86_64', offset=0,

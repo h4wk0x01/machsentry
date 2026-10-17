@@ -1,10 +1,10 @@
-name: facemessenger
+name: MachSentry
 
 on:
   pull_request:
-    paths: ["macos_static/**", ".github/workflows/facemessenger.yml"]
+    paths: ["macos_static/**", ".github/workflows/machsentry.yml"]
   push:
-    paths: ["macos_static/**", ".github/workflows/facemessenger.yml"]
+    paths: ["macos_static/**", ".github/workflows/machsentry.yml"]
   workflow_dispatch:
 
 permissions:

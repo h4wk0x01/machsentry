@@ -1,4 +1,4 @@
-# facemessenger
+# MachSentry
 
 Núcleo portátil para análise **estática e local** de malware Mach-O, desenvolvido
 neste fork do REA para futura integração ao Unpacked. Funciona no Windows sem
@@ -12,14 +12,14 @@ Python 3.12 ou posterior. As três dependências de análise têm versões fixas
 ```powershell
 python -m venv .venv-unpack
 .\.venv-unpack\Scripts\python.exe -m pip install -e ./macos_static
-.\.venv-unpack\Scripts\python.exe -m facemessenger analyze C:\entrada\arquivo.macho --output reports/macos/analise-001
+.\.venv-unpack\Scripts\python.exe -m machsentry analyze C:\entrada\arquivo.macho --output reports/macos/analise-001
 ```
 
 Para a referência histórica, sem escrever o executável no disco:
 
 ```powershell
 .\.venv-unpack\Scripts\python.exe macos_static/fetch_reference_sample.py
-.\.venv-unpack\Scripts\python.exe -m facemessenger analyze amostras/AtomicStealer-2023.zip --member "AtomicStealer/Trading View" --zip-password infect3d --output reports/macos/atomic-001
+.\.venv-unpack\Scripts\python.exe -m machsentry analyze amostras/AtomicStealer-2023.zip --member "AtomicStealer/Trading View" --zip-password infect3d --output reports/macos/atomic-001
 ```
 
 Acrescente `--benign-file CAMINHO` para cada arquivo do corpus negativo e `--json`
@@ -31,7 +31,7 @@ não usa rede, modelo de linguagem, subprocesso nem execução da amostra.
 Para testar assinaturas de instruções em amostras relacionadas selecionadas:
 
 ```powershell
-.\.venv-unpack\Scripts\python.exe -m facemessenger analyze amostra.macho --yara-mode opcodes --related-file variante.macho --benign-file controle.dylib --output reports/macos/opcodes-001
+.\.venv-unpack\Scripts\python.exe -m machsentry analyze amostra.macho --yara-mode opcodes --related-file variante.macho --benign-file controle.dylib --output reports/macos/opcodes-001
 ```
 
 `--related-file` é repetível e recebe arquivos já descompactados explicitamente
@@ -138,9 +138,9 @@ Nenhum cache de análises é usado nesta versão.
 ```
 
 Os testes usam bytes sintéticos, sem baixar ou executar malware. O teste real e
-suas limitações estão em [validação](../docs/facemessenger-validation.md).
+suas limitações estão em [validação](../docs/machsentry-validation.md).
 O contrato proposto de jobs, créditos e dashboard está em
-[integração](../docs/facemessenger-integration.md). API HTTP, fila, créditos,
+[integração](../docs/machsentry-integration.md). API HTTP, fila, créditos,
 contenção de workers, autorização por conta e interface web não estão implantados.
 O parser nativo processa bytes não confiáveis; antes de oferecer uploads pagos,
 execute o worker em isolamento do servidor web, sem rede e com limites externos

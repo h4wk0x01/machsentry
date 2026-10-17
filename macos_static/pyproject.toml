@@ -3,8 +3,8 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "facemessenger"
-version = "0.2.0"
+name = "machsentry"
+version = "0.2.1"
 description = "Offline, evidence-linked static analysis of macOS Mach-O malware"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,10 +13,10 @@ license-files = ["LICENSE"]
 dependencies = ["lief==1.0.0", "capstone==5.0.9", "yara-python==4.5.4"]
 
 [project.urls]
-Repository = "https://github.com/h4wk0x01/facemessenger"
+Repository = "https://github.com/h4wk0x01/machsentry"
 
 [project.scripts]
-facemessenger = "facemessenger.cli:main"
+machsentry = "machsentry.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["facemessenger*"]
+include = ["machsentry*"]

@@ -11,10 +11,10 @@ import unittest
 import warnings
 import zipfile
 
-from facemessenger.behavior import find_behaviors, risk_score
-from facemessenger.evidence import correlate, extract_strings
-from facemessenger.macho import Function, Image, Section, parse_images
-from facemessenger.source import AnalysisError, Limits, load_source
+from machsentry.behavior import find_behaviors, risk_score
+from machsentry.evidence import correlate, extract_strings
+from machsentry.macho import Function, Image, Section, parse_images
+from machsentry.source import AnalysisError, Limits, load_source
 
 
 def thin_header(cpu=0x01000007, subtype=3, commands=0, command_bytes=0):

@@ -1,9 +1,9 @@
-# Integração futura do facemessenger com o Unpacked
+# Integração futura do MachSentry com o Unpacked
 
 ## Estado e fronteira do módulo
 
-O facemessenger é um módulo de análise estática de arquivos Mach-O. O núcleo
-Python fica em `macos_static/facemessenger`, separado dos adaptadores CLI/MCP do
+O MachSentry é um módulo de análise estática de arquivos Mach-O. O núcleo
+Python fica em `macos_static/machsentry`, separado dos adaptadores CLI/MCP do
 REA e do servidor Next.js do Unpacked. A fronteira de entrada é um arquivo local
 selecionado pelo operador; a saída é um relatório JSON de versão 1 e os artefatos
 produzidos pela análise. LIEF concentra a interpretação estrutural do Mach-O,
@@ -13,7 +13,7 @@ O comando do núcleo, executado a partir de `macos_static` ou após a instalaç�
 pacote, é:
 
 ```text
-python -m facemessenger analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
+python -m machsentry analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
 ```
 
 Esta documentação propõe a integração comercial. Não implementa nem confirma

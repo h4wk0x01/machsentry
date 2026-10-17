@@ -7,11 +7,11 @@ from unittest.mock import patch
 
 import yara
 
-from facemessenger.behavior import attribute_functions, find_behaviors
-from facemessenger.detection import generate_rule
-from facemessenger.evidence import correlate, extract_strings
-from facemessenger.macho import Function, Image, Section, parse_images
-from facemessenger.source import AnalysisError, Limits
+from machsentry.behavior import attribute_functions, find_behaviors
+from machsentry.detection import generate_rule
+from machsentry.evidence import correlate, extract_strings
+from machsentry.macho import Function, Image, Section, parse_images
+from machsentry.source import AnalysisError, Limits
 
 
 def header(command_count=0, command_bytes=0):
@@ -94,7 +94,7 @@ class SymbolExpansionTests(unittest.TestCase):
         data = aliased_symbol_image(count, name)
         self.assertLess(count, limits.max_symbols)
         self.assertLess(len(data), limits.max_file_bytes)
-        with patch("facemessenger.macho.lief.MachO.parse",
+        with patch("machsentry.macho.lief.MachO.parse",
                    side_effect=AssertionError("Native parser must not receive an expansion bomb")) as native:
             with self.assertRaises(AnalysisError) as caught:
                 parse_images(data, limits)

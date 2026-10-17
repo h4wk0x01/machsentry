@@ -108,7 +108,7 @@ def risk_score(findings, coverage_limited: bool) -> dict:
     likely = any(sum(values.values()) >= 70 and len(corroborated[sid]) >= 3 for sid, values in per_slice.items())
     verdict = 'likely_malicious' if likely else 'suspicious' if points >= 30 else 'inconclusive'
     return {"value": points, "maximum": 100, "verdict": verdict,
-            "method": "facemessenger-static-heuristic-v1", "calibrated_probability": False,
+            "method": "machsentry-static-heuristic-v1", "calibrated_probability": False,
             "contributions": contributions, "per_slice": per_slice, "coverage_limited": coverage_limited,
             "explanation": "Maior score entre slices; categorias contadas uma vez por slice. >=70 com referências de código em >=3 categorias fortes na mesma slice: likely_malicious; >=30: suspicious; restante: inconclusive. Nenhum resultado certifica arquivo benigno."}
 

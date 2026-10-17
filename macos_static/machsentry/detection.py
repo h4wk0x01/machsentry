@@ -84,9 +84,9 @@ def generate_rule(data: bytes, digest: str, findings: list[dict], strings: list[
     if opcode_conditions:
         condition += (' and ' if condition else '') + '(' + ' or '.join(opcode_conditions) + ')'
     rule = '\n'.join([
-        f"rule facemessenger_{effective}_{digest[:16]}", "{", "    meta:",
+        f"rule machsentry_{effective}_{digest[:16]}", "{", "    meta:",
         '        description = "Mach-O with combined credential, collection and upload indicators"',
-        f'        sample_sha256 = "{digest}"', f'        generator = "facemessenger {__version__}"',
+        f'        sample_sha256 = "{digest}"', f'        generator = "machsentry {__version__}"',
         '        validation = "sample positive; negative corpus recorded in report.json"',
         "    strings:", *declarations, "    condition:",
         "        (uint32(0) == 0xfeedfacf or uint32(0) == 0xfeedface or",

@@ -4,8 +4,8 @@ import unittest
 
 import yara
 
-from facemessenger.detection import generate_rule
-from facemessenger.opcodes import build_opcode_patterns
+from machsentry.detection import generate_rule
+from machsentry.opcodes import build_opcode_patterns
 from test_opcodes import x64_fixture
 import test_cli
 

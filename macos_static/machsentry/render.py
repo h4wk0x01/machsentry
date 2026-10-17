@@ -12,7 +12,7 @@ def _inline(text: str) -> str:
 
 def markdown(report: dict) -> str:
     artifact, risk = report['artifact'], report['risk']
-    lines = ['# facemessenger — relatório estático', '',
+    lines = ['# MachSentry — relatório estático', '',
              f"**Veredito:** `{risk['verdict']}` · **Score:** {risk['value']}/100 (heurístico, não probabilístico).", '',
              f"SHA-256: `{artifact['sha256']}`  ", f"Tamanho: {artifact['size_bytes']} bytes  ",
              f"Arquiteturas: {', '.join(s['architecture'] for s in report['slices'])}  ",

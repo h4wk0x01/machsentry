@@ -44,7 +44,7 @@ def analyze(source: Source, limits: Limits = Limits(), negatives: list[tuple[str
     for image in images:
         known_limits.extend(f"slice {image.index}: {item}" for item in image.limitations)
     report = {
-        "schema_version": "1.0", "engine": {"name": "facemessenger", "version": __version__,
+        "schema_version": "1.0", "engine": {"name": "machsentry", "version": __version__,
             "ruleset_version": RULESET_VERSION, "lief": version('lief'), "capstone": version('capstone'),
             "yara_python": version('yara-python')},
         "created_at": datetime.now(timezone.utc).isoformat(), "mode": "static_offline",

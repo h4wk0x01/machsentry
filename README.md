@@ -1,4 +1,4 @@
-# facemessenger
+# MachSentry
 
 Este fork está focado em **análise estática de malware macOS no Windows**, com
 relatório de comportamento inferido, endereços de funções sustentados por
@@ -15,17 +15,17 @@ sem promessa de engenharia reversa completa ou zero falsos positivos.
 ```powershell
 python -m venv .venv-unpack
 .\.venv-unpack\Scripts\python.exe -m pip install -e ./macos_static
-.\.venv-unpack\Scripts\python.exe -m facemessenger analyze arquivo.macho --output reports/macos/analise-001
+.\.venv-unpack\Scripts\python.exe -m machsentry analyze arquivo.macho --output reports/macos/analise-001
 ```
 
 [Guia do núcleo](macos_static/README.md) · [Amostra de referência](amostras/README.md) ·
-[Validação](docs/facemessenger-validation.md) · [Integração futura com Unpacked](docs/facemessenger-integration.md)
+[Validação](docs/machsentry-validation.md) · [Integração futura com Unpacked](docs/machsentry-integration.md)
 
 O código, as licenças e a documentação do REA de origem permanecem abaixo.
 O pacote npm `rea-agents`, seu MCP e seus comandos continuam com a identidade
-upstream; o módulo Python `facemessenger` é a nova entrada deste fork.
+upstream; o módulo Python `machsentry` é a nova entrada deste fork.
 As propostas automáticas de release do pacote npm ficam restritas ao upstream.
-O projeto está em [h4wk0x01/facemessenger](https://github.com/h4wk0x01/facemessenger).
+O projeto está em [h4wk0x01/machsentry](https://github.com/h4wk0x01/machsentry).
 
 ---
 
