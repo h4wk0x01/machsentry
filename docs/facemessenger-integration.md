@@ -35,22 +35,22 @@ são relativos a essa raiz. O projeto usa Next.js, Auth.js, Drizzle/libsql e
 Stripe. Não foi encontrado um sistema de créditos de análise, fila ou tabela
 de trabalhos de análise no código inspecionado.
 
-| Caminho | Responsabilidade existente e uso na integração |
-| --- | --- |
-| `app/[locale]/track/page.tsx` | Compõe o dashboard e seus painéis. É o ponto de composição para um futuro painel de análises. |
-| `components/dashboard/views.ts` | Define as abas e a seleção por `?view=`. Uma nova aba exige uma entrada nesse contrato. |
-| `components/dashboard/dashboard-shell.tsx` | Prepara os textos e dados do quadro do dashboard. |
-| `components/dashboard/dashboard-frame.tsx` | Renderiza navegação, ícones e painéis. |
-| `lib/auth.ts` | Resolve a conta autenticada e seus dados por requisição. |
-| `lib/access.ts` | Verifica acesso pago ativo e não expirado. Isso não representa saldo de créditos. |
-| `db/schema.ts` | Contém usuários, direitos de acesso, eventos Stripe e tentativas dos exercícios. Os relatórios de exercícios não são trabalhos de análise de malware. |
-| `db/index.ts` | Compõe o acesso Drizzle/libsql; a configuração local usa SQLite. |
-| `lib/config.ts` | Centraliza produtos e planos. Ainda não define franquia, preço ou validade de créditos de análise. |
-| `lib/billing.ts` | Concede e atualiza acesso após checkout e pagamento de faturas. |
-| `lib/stripe-webhook.ts` | Processa os eventos Stripe verificados. |
-| `app/api/stripe/webhook/route.ts` | Recebe e verifica a assinatura do webhook Stripe. |
-| `app/api/artifacts/[id]/route.ts` | Entrega artefatos de exercícios após verificar sessão, token, termos e acesso. Serve como referência de autorização, não como endpoint de upload. |
-| `lib/artifacts/signing.ts` | Implementa tokens de download com expiração e vínculo ao usuário. |
+| Caminho                                    | Responsabilidade existente e uso na integração                                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/[locale]/track/page.tsx`              | Compõe o dashboard e seus painéis. É o ponto de composição para um futuro painel de análises.                                                         |
+| `components/dashboard/views.ts`            | Define as abas e a seleção por `?view=`. Uma nova aba exige uma entrada nesse contrato.                                                               |
+| `components/dashboard/dashboard-shell.tsx` | Prepara os textos e dados do quadro do dashboard.                                                                                                     |
+| `components/dashboard/dashboard-frame.tsx` | Renderiza navegação, ícones e painéis.                                                                                                                |
+| `lib/auth.ts`                              | Resolve a conta autenticada e seus dados por requisição.                                                                                              |
+| `lib/access.ts`                            | Verifica acesso pago ativo e não expirado. Isso não representa saldo de créditos.                                                                     |
+| `db/schema.ts`                             | Contém usuários, direitos de acesso, eventos Stripe e tentativas dos exercícios. Os relatórios de exercícios não são trabalhos de análise de malware. |
+| `db/index.ts`                              | Compõe o acesso Drizzle/libsql; a configuração local usa SQLite.                                                                                      |
+| `lib/config.ts`                            | Centraliza produtos e planos. Ainda não define franquia, preço ou validade de créditos de análise.                                                    |
+| `lib/billing.ts`                           | Concede e atualiza acesso após checkout e pagamento de faturas.                                                                                       |
+| `lib/stripe-webhook.ts`                    | Processa os eventos Stripe verificados.                                                                                                               |
+| `app/api/stripe/webhook/route.ts`          | Recebe e verifica a assinatura do webhook Stripe.                                                                                                     |
+| `app/api/artifacts/[id]/route.ts`          | Entrega artefatos de exercícios após verificar sessão, token, termos e acesso. Serve como referência de autorização, não como endpoint de upload.     |
+| `lib/artifacts/signing.ts`                 | Implementa tokens de download com expiração e vínculo ao usuário.                                                                                     |
 
 Uma futura aba de análises pode apresentar envio de arquivo, custo, saldo,
 histórico e resultado. Textos devem acompanhar os idiomas já suportados. O
@@ -68,14 +68,14 @@ confirma SHA-256 e tamanho e chama o núcleo em um processo isolado.
 
 Uma API possível, ainda não implementada, é:
 
-| Operação proposta | Resultado e autorização |
-| --- | --- |
-| `POST /api/macos-analysis/uploads` | Admite um upload privado e limitado, vinculado à conta. Não inicia análise nem consome créditos. |
-| `POST /api/macos-analysis/jobs` | Recebe `upload_id`, opções e uma chave de idempotência. Valida acesso e saldo, reserva créditos e cria o trabalho. Retorna `202` com `job_id`. |
-| `GET /api/macos-analysis/jobs/:id` | Retorna estado e resumo apenas para o proprietário. |
-| `GET /api/macos-analysis/jobs/:id/report` | Entrega o relatório persistido de um trabalho concluído, após verificar propriedade. |
-| `POST /api/macos-analysis/jobs/:id/cancel` | Solicita cancelamento; a resposta não deve declarar limpeza concluída antes de o worker confirmar. |
-| `GET /api/macos-analysis/jobs/:id/yara` | Entrega a regra e o estado de sua validação quando disponíveis. |
+| Operação proposta                          | Resultado e autorização                                                                                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/macos-analysis/uploads`         | Admite um upload privado e limitado, vinculado à conta. Não inicia análise nem consome créditos.                                               |
+| `POST /api/macos-analysis/jobs`            | Recebe `upload_id`, opções e uma chave de idempotência. Valida acesso e saldo, reserva créditos e cria o trabalho. Retorna `202` com `job_id`. |
+| `GET /api/macos-analysis/jobs/:id`         | Retorna estado e resumo apenas para o proprietário.                                                                                            |
+| `GET /api/macos-analysis/jobs/:id/report`  | Entrega o relatório persistido de um trabalho concluído, após verificar propriedade.                                                           |
+| `POST /api/macos-analysis/jobs/:id/cancel` | Solicita cancelamento; a resposta não deve declarar limpeza concluída antes de o worker confirmar.                                             |
+| `GET /api/macos-analysis/jobs/:id/yara`    | Entrega a regra e o estado de sua validação quando disponíveis.                                                                                |
 
 No relatório, preservar as identidades da amostra e de cada arquitetura,
 evidências com posições na origem, achados, funções, scripts, score e veredito,

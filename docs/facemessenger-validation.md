@@ -5,7 +5,14 @@ Capstone 5.0.9 e yara-python 4.5.4. O novo núcleo é Python independente; não 
 executados build, testes, typecheck ou verificadores npm do REA upstream. O host
 não tinha npm nem node_modules. A configuração de CI Windows/Linux acompanha
 o módulo; seu resultado remoto deve ser consultado no GitHub Actions.
-Linux não foi validado localmente.
+Linux não foi validado localmente. A [CI do módulo no commit 82d2988fc](https://github.com/h4wk0x01/facemessenger/actions/runs/39002576259)
+passou no Windows e no Ubuntu, com os 48 testes em cada plataforma.
+
+O formatter fixado no repositório (`oxfmt` 0.72.0) validou os arquivos ajustados.
+Cinco verificações locais da paridade de documentação cobriram as 19 traduções,
+a separação da introdução do fork, drift no conteúdo upstream e compatibilidade
+com README sem o marcador, usando Node 24.18.0 portátil. Esse check isolado não
+substitui a geração completa do catálogo npm, executada pela CI herdada.
 
 ## Verificações executadas
 
@@ -62,15 +69,15 @@ Resultado observado: **95/100, `likely_malicious`**, heurístico e não calibrad
 555 strings em 49 seções; 14 funções relacionadas a seis categorias de indícios,
 sete por arquitetura. Seis fragmentos AppleScript/lançadores foram exportados.
 
-| Associação estática | x86_64 | arm64 |
-| --- | --- | --- |
+| Associação estática                  | x86_64        | arm64         |
+| ------------------------------------ | ------------- | ------------- |
 | Diálogo de senha (`GetUserPassword`) | `0x1000075c0` | `0x1000077c4` |
-| Keychain (`keychain`) | `0x100004040` | `0x100004964` |
-| Chromium (`GrabChromium`) | `0x100002360` | `0x1000033fc` |
-| Firefox (`GrabFirefox`) | `0x100004b30` | `0x100005284` |
-| Carteiras (`ColdWallets`) | `0x1000051e0` | `0x100005814` |
-| Envio HTTP (`sendlog`) | `0x100005f20` | `0x10000624c` |
-| Inventário (`systeminfo`) | `0x1000043e0` | `0x100004c34` |
+| Keychain (`keychain`)                | `0x100004040` | `0x100004964` |
+| Chromium (`GrabChromium`)            | `0x100002360` | `0x1000033fc` |
+| Firefox (`GrabFirefox`)              | `0x100004b30` | `0x100005284` |
+| Carteiras (`ColdWallets`)            | `0x1000051e0` | `0x100005814` |
+| Envio HTTP (`sendlog`)               | `0x100005f20` | `0x10000624c` |
+| Inventário (`systeminfo`)            | `0x1000043e0` | `0x100004c34` |
 
 São VAs sem ASLR. O JSON preserva os nomes mangled originais, offsets e
 instruções que referenciam as evidências. O candidato de rede
@@ -105,10 +112,10 @@ sem estabelecer cobertura de outras variantes. Nenhuma candidata correspondeu
 aos dois controles nativos abaixo, extraídos das wheels
 macOS do Capstone 5.0.9 obtidas do PyPI, sem executá-los:
 
-| Controle | SHA-256 | Match |
-| --- | --- | --- |
-| libcapstone arm64 | `016084c6e70d929249a2abb22f1afda95095294e6cd70f509964ffc54006bf94` | não |
-| libcapstone x86_64 | `bbf3f4dac202c51c35a076145c480394056614bdbccc7300c8a44a834b5170cf` | não |
+| Controle           | SHA-256                                                            | Match |
+| ------------------ | ------------------------------------------------------------------ | ----- |
+| libcapstone arm64  | `016084c6e70d929249a2abb22f1afda95095294e6cd70f509964ffc54006bf94` | não   |
+| libcapstone x86_64 | `bbf3f4dac202c51c35a076145c480394056614bdbccc7300c8a44a834b5170cf` | não   |
 
 Também foi executada uma análise completa do controle arm64: score 0,
 `inconclusive`, nenhuma candidata YARA. Isso não certifica benignidade.
@@ -128,13 +135,13 @@ base com as bibliotecas do venv explicitamente selecionadas, sem o redirector
 de venv do Windows e sem processos filhos. Não há cache de análise. O estado
 do cache do sistema operacional não foi esvaziado nem medido.
 
-| Modo | Execução | Tempo total | CPU total | Pico working set observado |
-| --- | --- | --- | --- | --- |
-| Strings | Primeiro processo, cache do SO desconhecido | 1,927 s | 1,672 s | 127.619.072 bytes |
-| Strings | Repetição com arquivos aquecidos | 1,454 s | 1,406 s | 127.995.904 bytes |
-| Híbrido automático | Primeiro processo do modo, arquivos já lidos | 1,436 s | 1,391 s | 127.762.432 bytes |
-| Híbrido automático | Repetição com arquivos aquecidos | 1,378 s | 1,328 s | 127.348.736 bytes |
-| Opcodes | Processo novo, arquivos já lidos | 1,314 s | 1,234 s | 127.180.800 bytes |
+| Modo               | Execução                                     | Tempo total | CPU total | Pico working set observado |
+| ------------------ | -------------------------------------------- | ----------- | --------- | -------------------------- |
+| Strings            | Primeiro processo, cache do SO desconhecido  | 1,927 s     | 1,672 s   | 127.619.072 bytes          |
+| Strings            | Repetição com arquivos aquecidos             | 1,454 s     | 1,406 s   | 127.995.904 bytes          |
+| Híbrido automático | Primeiro processo do modo, arquivos já lidos | 1,436 s     | 1,391 s   | 127.762.432 bytes          |
+| Híbrido automático | Repetição com arquivos aquecidos             | 1,378 s     | 1,328 s   | 127.348.736 bytes          |
+| Opcodes            | Processo novo, arquivos já lidos             | 1,314 s     | 1,234 s   | 127.180.800 bytes          |
 
 CPU: `GetProcessTimes`. Memória: `PeakWorkingSetSize` cumulativo consultado a
 cada 10 ms; o pico final entre a última consulta e a saída pode não ter sido

@@ -74,6 +74,33 @@ describe("translated README facts", () => {
     await expect(documentationFactIssues(directory, catalog)).resolves.toEqual(
       [],
     );
+    const canonicalPath = join(directory, "README.md");
+    const canonical = await readFile(canonicalPath, "utf8");
+    expect(canonical).toContain("<!-- REA upstream documentation -->");
+    await writeFile(
+      canonicalPath,
+      `[Fork guide](macos_static/README.md)\n${canonical}`,
+      "utf8",
+    );
+    await expect(documentationFactIssues(directory, catalog)).resolves.toEqual(
+      [],
+    );
+    await writeFile(
+      canonicalPath,
+      `${canonical}\n[New upstream guide](docs/new-upstream-guide.md)\n`,
+      "utf8",
+    );
+    const missingTranslations = await documentationFactIssues(
+      directory,
+      catalog,
+    );
+    expect(missingTranslations).toHaveLength(4);
+    expect(
+      missingTranslations.every((issue) =>
+        issue.includes("documentation links differ"),
+      ),
+    ).toBe(true);
+    await writeFile(canonicalPath, canonical, "utf8");
     for (const [original, changed] of README_LINK_DRIFT_MUTATIONS) {
       expect(translated).toContain(original);
       await writeFile(

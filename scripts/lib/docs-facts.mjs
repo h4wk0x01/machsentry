@@ -132,10 +132,17 @@ export const documentationFactIssues = async (root, catalog) => {
       );
     }
   }
+  // The fork introduction describes a separate product; translations below
+  // docs/readme still own only the explicitly retained upstream documentation.
+  const canonicalReadme = readmes.get("README.md") ?? "";
+  const upstreamMarker = "<!-- REA upstream documentation -->";
+  const upstreamStart = canonicalReadme.indexOf(upstreamMarker);
   const canonicalLinks = readmeLinkTargets(
     root,
     "README.md",
-    readmes.get("README.md") ?? "",
+    upstreamStart === -1
+      ? canonicalReadme
+      : canonicalReadme.slice(upstreamStart + upstreamMarker.length),
   );
   const languageInventory = JSON.parse(
     await readFile(join(root, "website/locales/languages.json"), "utf8"),
