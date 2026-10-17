@@ -28,8 +28,10 @@ Node/npm com versões e hashes fixados, mantém as ferramentas dentro do projeto
 instala dependências e compila o REA. Não exige procurar e baixar o Ghidra
 manualmente. Se a distribuição não incluir o descompilador nativo do Mac, o
 preparo usa as Xcode Command Line Tools já instaladas para compilá-lo.
-A execução em macOS/UTM precisa ser validada nesse sistema; testes no Windows
-não demonstram compatibilidade de uma VM específica.
+O fluxo foi verificado em Windows e macOS Apple Silicon com Mach-O inertes de
+ambas as arquiteturas. Isso não valida uma configuração específica de VM UTM.
+Valores existentes de `JAVA_HOME` e `GHIDRA_INSTALL_DIR` têm prioridade; o
+diagnóstico explica incompatibilidades, como um Java anterior ao JDK 21.
 
 O clone contém o código e esse preparo automatizado. As dependências instaladas,
 amostras, projetos temporários do Ghidra e relatórios ficam fora do Git.

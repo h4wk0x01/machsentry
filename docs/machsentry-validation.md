@@ -12,7 +12,12 @@ Em 17 de outubro de 2026, no Windows x64, o preparo completo
 npm ci, build do REA, instalação do cliente e diagnóstico Ghidra saudável.
 Foram usados Node 24.18.0, npm 11.16.0, Ghidra 12.1.4 e Temurin JDK 21.0.12.1.
 As ferramentas ficam em `.tools/`, ignorada pelo Git. O comando foi verificado
-neste checkout; o preparo em um clone macOS ainda depende da validação remota.
+neste checkout. A execução remota em macOS 15 arm64 também concluiu o preparo e
+as verificações reais de CLI e MCP no commit `958e67f80`:
+[job macOS](https://github.com/h4wk0x01/machsentry/actions/runs/39005863423/job/117318103533).
+A CLI levou 26,37 s (x86_64) e 16,92 s (arm64); o relatório universal levou
+27,07 s, com oito pseudocódigos, 61 evidências e a verificação YARA aprovada.
+Esses testes usam os arquivos inertes descritos abaixo, sem executar seus bytes.
 
 A CLI pública `rea decompile`, usando o provedor real, recuperou `return 0x2a;`
 de dois Mach-O inertes codificados para o teste, x86_64 e arm64. Os tempos foram
@@ -48,7 +53,7 @@ Esse resultado motivou uma correção do veredito: a heurística v2 retorna
 indicadores ligados a código. Ela não transforma referências em confirmação de
 malware. As pontuações são mantidas como prioridade de investigação.
 
-Verificações locais adicionais: 50 testes Python passaram, com um teste de symlink ignorado no Windows; seis testes do preparo,
+Verificações locais adicionais: 50 testes Python passaram, com um teste de symlink ignorado no Windows; sete testes do preparo,
 140 testes TypeScript focados (três exclusivos de macOS ignorados), typecheck/lint,
 checagem de documentação e descoberta dos testes. Um teste preexistente separado
 de criação de symlink não pôde passar nesta conta Windows por `EPERM`; não houve
