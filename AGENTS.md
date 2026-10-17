@@ -1,8 +1,39 @@
 # Repository Guidelines
 
+## MachSentry sample analysis (default workflow)
+
+This fork's product is MachSentry, a static macOS Mach-O malware analyzer in
+`macos_static/machsentry`. For requests such as "analise este Mach-O", use its
+Python CLI and read [the module guide](macos_static/README.md). The retained REA
+skills, npm commands and native-provider setup describe the separate upstream
+workflow; they are not prerequisites for MachSentry analysis.
+
+1. Identify the caller-selected sample path. Samples and generated reports are
+   ignored by Git and are not included in a fresh clone. If the target is
+   ambiguous, ask for its path instead of choosing another sample or downloading
+   malware. For ZIP input, preserve the explicit member selection.
+2. Use an existing Python 3.12+ interpreter. If needed, create `.venv-unpack` and
+   install `./macos_static` into it with `python -m pip install -e ./macos_static`.
+   Check `python -m machsentry --version` with that interpreter. Do not assume
+   the host's virtual environment or tools were copied into the VM by Git.
+3. Run `python -m machsentry analyze INPUT --output reports/macos/UNIQUE_RUN`
+   with the environment's interpreter (`.venv-unpack/bin/python` on POSIX,
+   `.venv-unpack\Scripts\python.exe` on Windows). Use a new output directory.
+   The default YARA mode is `auto`; honor explicit modes and supplied positive
+   or negative corpora. Do not execute the sample, embedded scripts or IOC URLs.
+4. Verify the exit code and Result envelope, then inspect the completed
+   `report.json`. Summarize behavior evidence, function VAs with architecture,
+   extracted scripts, heuristic score, YARA validation and coverage limitations.
+   Link the retained report and exports. Failed or missing analysis remains
+   unknown; never claim complete reverse engineering or zero false positives.
+
+Repository instructions guide the assistant; a clone does not install Python,
+dependencies, Codex or an MCP server. The VM's OS and CPU architecture determine
+dependency availability. Keep any missing prerequisites explicit.
+
 ## Product and Authority
 
-REA is a local-only reverse-engineering tool with shared CLI/MCP workflows. Distinguish observations, derivations, inferences, and unknowns; preserve Evidence provenance and session semantics through both adapters. Provider support and setup live in [README.md](README.md#choosing-a-deep-analysis-provider) and its linked guides.
+The retained REA engine is a local-only reverse-engineering tool with shared CLI/MCP workflows. Distinguish observations, derivations, inferences, and unknowns; preserve Evidence provenance and session semantics through both adapters. REA provider support and setup live in [README.md](README.md#choosing-a-deep-analysis-provider) and its linked guides.
 
 Follow the [contribution scope and fail-closed integration rule](CONTRIBUTING.md#contribution-scope). Do not integrate capabilities while material scope, authority, side-effect, or required verification questions remain unresolved. For new providers or capabilities involving target execution, injection, mutation, or protection recovery, seek the required maintainer scope decision before substantial implementation for integration. Welcome early proposals, small exploratory prototypes, and draft PRs that help resolve questions; they do not authorize integration.
 

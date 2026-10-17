@@ -1,6 +1,6 @@
 # MachSentry
 
-Este fork está focado em **análise estática de malware macOS no Windows**, com
+Este fork está focado em **análise estática de malware macOS**, com núcleo Python portátil,
 relatório de comportamento inferido, endereços de funções sustentados por
 referências de código, fragmentos AppleScript, score explicável e candidata YARA
 com strings e/ou opcodes. Os curingas preservam os bytes fixos das instruções
@@ -17,6 +17,24 @@ python -m venv .venv-unpack
 .\.venv-unpack\Scripts\python.exe -m pip install -e ./macos_static
 .\.venv-unpack\Scripts\python.exe -m machsentry analyze arquivo.macho --output reports/macos/analise-001
 ```
+
+Em um terminal Linux/macOS, com Python 3.12+ e dependências compatíveis com o
+sistema e a arquitetura usados:
+
+```bash
+git clone https://github.com/h4wk0x01/machsentry.git
+cd machsentry
+python3 -m venv .venv-unpack
+.venv-unpack/bin/python -m pip install -e ./macos_static
+.venv-unpack/bin/python -m machsentry --version
+```
+
+Abra a raiz do clone como projeto no Codex e coloque a amostra em `amostras/`
+dentro da VM. Um pedido inicial pode ser: "Analise estaticamente
+`amostras/arquivo.macho` com MachSentry e gere o relatório com funções, score e
+YARA". O `AGENTS.md` orienta esse fluxo. O clone inclui código, testes e
+instruções; as amostras, relatórios e ambiente virtual precisam existir
+localmente. Esta configuração em UTM ainda não foi validada.
 
 [Guia do núcleo](macos_static/README.md) · [Amostra de referência](amostras/README.md) ·
 [Validação](docs/machsentry-validation.md) · [Integração futura com Unpacked](docs/machsentry-integration.md)

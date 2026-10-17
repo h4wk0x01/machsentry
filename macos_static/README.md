@@ -8,6 +8,8 @@ macOS, Xcode, `otool`, Ghidra ou execução da amostra.
 
 Python 3.12 ou posterior. As três dependências de análise têm versões fixas em
 `pyproject.toml`; use um ambiente virtual. Não é necessário instalar o REA npm.
+O ambiente é preparado dentro do sistema onde o comando será executado, inclusive
+em uma VM. O clone não traz o Python, as dependências instaladas ou as amostras.
 
 ```powershell
 python -m venv .venv-unpack
