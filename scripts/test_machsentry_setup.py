@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -17,6 +18,17 @@ import machsentry_setup as setup
 
 
 class SetupTests(unittest.TestCase):
+    def test_failed_doctor_preserves_the_provider_failure_reason(self):
+        config = {"executables": {"node": "node", "npm_cli": "npm-cli.js"}, "environment": {"JAVA_HOME": "jdk"}}
+        report = {"healthy": False, "scope_checks": [{"name": "ghidra", "ok": False, "detail": "JDK version is unsupported"}]}
+        def run(command, **kwargs):
+            if "doctor" in command:
+                return subprocess.CompletedProcess(command, 1, json.dumps(report), "")
+            return subprocess.CompletedProcess(command, 0, "", "")
+        with mock.patch.object(setup.subprocess, "run", side_effect=run):
+            with self.assertRaisesRegex(RuntimeError, "JDK version is unsupported"):
+                setup.install_project(config)
+
     def test_corrupt_cached_download_is_refused_without_network(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "archive.zip"

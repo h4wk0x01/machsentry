@@ -280,11 +280,14 @@ def install_project(config: dict) -> None:
     if not python.is_file():
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
     subprocess.run([str(python), "-m", "pip", "install", "-e", str(ROOT / "macos_static")], cwd=ROOT, check=True)
-    diagnosis = subprocess.run([node, str(ROOT / "scripts/rea.mjs"), "doctor", "--provider", "ghidra", "--json"], cwd=ROOT, env=environment, capture_output=True, text=True, check=True)
-    report = json.loads(diagnosis.stdout)
-    if report.get("healthy") is not True:
+    diagnosis = subprocess.run([node, str(ROOT / "scripts/rea.mjs"), "doctor", "--provider", "ghidra", "--json"], cwd=ROOT, env=environment, capture_output=True, text=True, encoding="utf-8")
+    try:
+        report = json.loads(diagnosis.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError(f"REA doctor returned no valid JSON (exit {diagnosis.returncode}): {diagnosis.stderr.strip()}") from error
+    if diagnosis.returncode != 0 or report.get("healthy") is not True:
         failures = [check for check in report.get("scope_checks", []) if check.get("ok") is not True]
-        raise RuntimeError("REA Ghidra readiness failed: " + json.dumps(failures))
+        raise RuntimeError("REA Ghidra readiness failed: " + json.dumps(failures or report))
     print("REA doctor: selected Ghidra provider is ready.", flush=True)
 
 
