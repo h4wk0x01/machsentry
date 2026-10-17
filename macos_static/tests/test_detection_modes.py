@@ -46,6 +46,19 @@ class OpcodeRuleTests(unittest.TestCase):
         self.patterns['patterns'][1]['hex_pattern'] = self.patterns['patterns'][0]['hex_pattern']
         self.assertEqual(self.generate()['status'], 'not_generated')
 
+    def test_opcode_selection_manifest_tracks_only_emitted_patterns(self):
+        extra = deepcopy(self.patterns['patterns'][0])
+        extra['id'] = 'excluded-duplicate'
+        self.patterns['patterns'].append(extra)
+        result = self.generate()
+        selected = result['selection']['opcodes']
+        self.assertEqual(len(selected), 2)
+        self.assertNotIn(extra['id'], [item['pattern_id'] for item in selected])
+        for item in selected:
+            self.assertIn(item['symbol'] + ' = ', result['rule'])
+        self.assertEqual(result['selection']['condition']['opcode_groups_any'][0]['symbols'],
+                         [item['symbol'] for item in selected])
+
     def test_related_operand_mutation_matches_but_fixed_mutation_is_reported_as_missed(self):
         varied = bytearray(self.data)
         for pattern in self.patterns['patterns']:

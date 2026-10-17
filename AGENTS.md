@@ -28,7 +28,10 @@ Do not replace the REA workflow with a standalone strings/disassembly analyzer.
 4. Verify the exit code and Result envelope, then inspect the completed
    `report.json`. Summarize behavior evidence, function VAs with architecture,
    extracted scripts, Ghidra pseudocode, heuristic score, YARA validation and coverage limitations.
-   Link the retained report and exports. Failed or missing analysis remains
+   Present `report.html` as the analyst-facing result. It has fixed sections and
+   explains each selected YARA string/opcode; implementation details and
+   pseudocode remain technical exports. `report-view.json` follows its exported
+   versioned JSON Schema for dashboard consumers. Link the retained report and exports. Failed or missing analysis remains
    unknown; never claim complete reverse engineering or zero false positives.
 
 Repository instructions guide the assistant; a clone includes the automatic

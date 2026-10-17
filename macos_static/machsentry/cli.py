@@ -8,7 +8,11 @@ import sys
 import time
 
 from . import __version__
+from .analyst_view import analyst_view
+from .detection import rule_export_name
+from .html_report import html_report
 from .metrics import peak_memory_bytes
+from .report_schema import SCHEMA
 from .render import function_assembly, markdown
 from .rea_client import ReaOptions
 from .service import analyze
@@ -34,11 +38,17 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
             complete = {key: value for key, value in bundle.items() if key != 'record_ids'}
             complete['records'] = [evidence[identifier] for identifier in bundle['record_ids']]
             exports[f'rea-evidence-{index:03d}.json'] = json.dumps(complete, ensure_ascii=False, indent=2) + '\n'
-        if report['yara']['rule'] is not None:
-            filename = 'candidate-rejected.yar.txt' if report['yara']['status'] in ('rejected', 'related_samples_missed') else 'detection.yar'
+        filename = rule_export_name(report['yara'], report['analysis_status'])
+        if filename is not None:
             exports[filename] = report['yara']['rule']
         for index, script in enumerate(report['scripts']):
             exports[f'script-{index:03d}.txt'] = script['content']
+        view = analyst_view(report)
+        exports['report.html'] = html_report(view)
+        exports['report-view.json'] = json.dumps(view, ensure_ascii=False, indent=2) + '\n'
+        exports['report-view.schema.json'] = json.dumps(SCHEMA, ensure_ascii=False, indent=2) + '\n'
+        report['presentation'] = {'schema_version': '1.0', 'html': 'report.html', 'data': 'report-view.json',
+                                  'schema': 'report-view.schema.json'}
         for filename, text in exports.items():
             _write(output / filename, text)
         # Report is the completion record and is written after evidence exports.
@@ -48,6 +58,8 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
         _write(output / '.report.json.pending', json.dumps(report, ensure_ascii=False, indent=2) + '\n')
         (output / '.report.json.pending').rename(output / 'report.json')
         return {"report": str((output / 'report.json').absolute()),
+                "html": str((output / 'report.html').absolute()),
+                "view": str((output / 'report-view.json').absolute()),
                 "markdown": str((output / 'report.md').absolute()), "directory": str(output.absolute())}
     except OSError as error:
         raise AnalysisError('output_error', f'{error}; incomplete outputs, if any, retained at {output}') from error

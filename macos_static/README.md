@@ -51,9 +51,15 @@ um analisador independente. Senhas e o ambiente herdado não são persistidos.
 
 ## Evidência e entregas
 
-- `report.json`, schema `2.0`: identidade original e por slice, score,
+- `report.html`: entrega principal para o analista, com oito seções fixas,
+  explicação dos critérios YARA e download da candidata quando disponível.
+- `report-view.json`, schema `1.0`: contrato de apresentação para o dashboard,
+  validado na publicação pelo `report-view.schema.json` (JSON Schema 2020-12).
+  Mantém campos e seções em achados, ausência de achados e falhas; valores
+  desconhecidos permanecem `null` e coleções vazias permanecem listas.
+- `report.json`, schema `2.1`: identidade original e por slice, score,
   inferências, funções, strings, scripts, validação YARA, erros e cobertura.
-- `report.md`: resumo em português com endereços de função por arquitetura.
+- `report.md`: resumo técnico mantido para compatibilidade.
 - `function-NNN-ARQUITETURA.pseudo.c.txt`: pseudocódigo exato retornado pelo Ghidra.
 - `functions.asm.txt`: assembly retornado pelo REA; exportação limitada a 2 MiB,
   com truncamento explícito. O Evidence completo permanece no JSON/bundle.
@@ -71,6 +77,20 @@ reversa completa de todo o binário. As associações não provam execução nem
 intenção maliciosa isoladamente. Endereços são VAs sem ASLR, identificados pela
 arquitetura. Offsets referem-se ao arquivo original ou membro descomprimido.
 Offsets indisponíveis permanecem `null`, sem estimativa.
+
+O HTML usa sempre esta ordem: resumo, identificação, comportamentos/evidências,
+funções, scripts, rede, YARA e cobertura. Não inclui versões de ferramentas,
+caminhos internos do worker, métricas de implementação ou pseudocódigo; esses
+dados permanecem nos artefatos técnicos. Cada critério `$b...` ou `$op...` é
+vinculado à seleção emitida pelo gerador, com valor, origem, interpretação e
+motivo. Padrões de opcodes incluem VA, arquitetura e significado dos operandos
+mascarados. As explicações não são inferidas novamente do texto da regra.
+
+O arquivo é autossuficiente, sem JavaScript, fontes externas ou chamadas de
+rede. Dados da amostra são escapados como texto e a CSP bloqueia conteúdo ativo.
+Há estilos para impressão e telas menores. A regra continua sem comentários
+explicativos extensos: a justificativa aparece no relatório. Candidatas
+rejeitadas e relatórios com falha não exibem download de `detection.yar`.
 
 O fluxo usa `open_binary`, `list_strings`, `xrefs`,
 `resolve_containing_procedure`, `analyze_function`, `address_to_file_offset`,

@@ -1,5 +1,36 @@
 # Validação do MachSentry
 
+## Relatório padronizado: 0.4.0
+
+`report.html` é a apresentação principal, com oito seções fixas. O contrato
+`report-view.json` v1.0 usa JSON Schema 2020-12; a análise técnica passou para
+schema 2.1 com a seleção estruturada de critérios YARA. O gerador atribui os
+identificadores da regra e a apresentação explica somente critérios emitidos,
+preservando função, arquitetura, evidência e campos mascarados.
+
+No Windows, 55 testes Python passaram e um teste de symlink foi ignorado por
+falta de privilégio. A verificação inclui publicação pela CLI em estados de
+achados, ausência e falha; estabilidade das seções; validação do schema; texto
+hostil escapado; ausência de links de IOC e de caminhos internos; e bloqueio do
+download de YARA rejeitada ou produzida em análise com falha de limpeza.
+
+O fluxo MCP real com Ghidra voltou a analisar a fixture universal inerte em
+49,76 s, mantendo os hashes, oito funções e 61 evidências. O HTML e seu contrato
+foram publicados; a YARA compilou, correspondeu à fixture e não aos dois
+controles negativos. Isso valida a integração e não a precisão de detecção de
+malware. A apresentação final foi regenerada das evidências retidas, sem nova
+análise dos bytes. A prévia foi inspecionada em navegador nas larguras de
+aproximadamente 1265 e 700 px, incluindo as explicações de curingas.
+
+Para o mesmo relatório retido, a renderização HTML com projeção e validação
+levou 3,00 ms na primeira chamada e mediana de 2,61 ms em dez chamadas seguintes;
+o Markdown levou 0,12 ms e 0,04 ms. Os tamanhos foram 31.804 e 10.496 bytes.
+São medições apenas da renderização, sem I/O, com cache do sistema não controlado;
+as apresentações têm conteúdos diferentes. A resolução do relógio de CPU do
+Python foi insuficiente para comparar essas chamadas. Pico de memória da
+renderização, CPU/memória da família de processos e tokens de desenvolvimento
+não foram medidos. Não há chamada a LLM no worker.
+
 ## Integração REA/Ghidra: 0.3.0
 
 A versão 0.3.0 substitui o analisador independente pelo cliente do MCP do REA.

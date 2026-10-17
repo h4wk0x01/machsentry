@@ -8,6 +8,14 @@ from . import __version__
 from .behavior import SIGNATURE_CATEGORIES
 
 
+def rule_export_name(yara_result: dict, analysis_status: str) -> str | None:
+    if yara_result['rule'] is None:
+        return None
+    if analysis_status != 'failed' and yara_result['status'] in ('validated_candidate', 'positive_only'):
+        return 'detection.yar'
+    return 'candidate-rejected.yar.txt'
+
+
 def generate_rule(data: bytes, digest: str, findings: list[dict], strings: list[dict], negatives: list[tuple[str, bytes]],
                   opcode_analysis: dict | None = None, mode: str = 'auto', related: list[tuple[str, bytes]] | None = None) -> dict:
     if mode not in ('auto', 'strings', 'hybrid', 'opcodes'):
@@ -22,6 +30,7 @@ def generate_rule(data: bytes, digest: str, findings: list[dict], strings: list[
     available = max(by_slice.values(), key=len, default={})
     base = {"engine": f"yara-python/{yara.__version__}", "kind": "static_behavior_indicator_conjunction", "requested_mode": mode,
             "false_positive_guarantee": False, "production_ready": False,
+            "selection": {"strings": [], "opcodes": [], "condition": None},
             "limitations": ["YARA observes file bytes, not executed behavior",
                             "Zero matches in a finite negative corpus does not establish zero false positives",
                             "Signature is sample-derived; family coverage is unverified",
@@ -73,21 +82,32 @@ def generate_rule(data: bytes, digest: str, findings: list[dict], strings: list[
                 "rule": None, "validation": None, "opcode_analysis": opcode_analysis}
     base['effective_mode'] = effective
     declarations, opcode_conditions = [], []
+    selected_strings, selected_opcodes, groups = [], [], []
     for number, indicator in enumerate(chosen if effective != 'opcodes' else []):
+        selected_strings.append({**indicator, "symbol": f"$b{number}",
+                                 "finding_id": available[indicator['category']]['id']})
         # JSON escaping matches YARA for retained ASCII text, CR/LF/tab and quotes.
         declarations.append(f"        $b{number} = {json.dumps(indicator['literal'], ensure_ascii=True)} "
                             + ('wide' if indicator['encoding'] == 'utf-16le' else 'ascii'))
     if effective in ('hybrid', 'opcodes'):
         for slice_number, patterns in sorted(opcode_groups.items()):
+            symbols = []
             for number, pattern in enumerate(patterns):
+                symbol = f"$op_s{slice_number}_{number}"
+                symbols.append(symbol)
+                selected_opcodes.append({"symbol": symbol, "pattern_id": pattern['id']})
                 declarations.append(f"        $op_s{slice_number}_{number} = {{ {pattern['hex_pattern']} }}")
+            groups.append({"slice": slice_number, "minimum_matches": 2, "symbols": symbols})
             opcode_conditions.append(f"2 of ($op_s{slice_number}_*)")
     condition = 'all of ($b*)' if effective != 'opcodes' else ''
     if opcode_conditions:
         condition += (' and ' if condition else '') + '(' + ' or '.join(opcode_conditions) + ')'
+    base['selection'] = {"strings": selected_strings, "opcodes": selected_opcodes,
+                         "condition": {"mach_o_required": True, "all_strings_required": effective != 'opcodes',
+                                       "opcode_groups_any": groups}}
     rule = '\n'.join([
         f"rule machsentry_{effective}_{digest[:16]}", "{", "    meta:",
-        '        description = "Mach-O with combined credential, collection and upload indicators"',
+        '        description = "Mach-O matching the selected static indicators"',
         f'        sample_sha256 = "{digest}"', f'        generator = "machsentry {__version__}"',
         '        validation = "sample positive; negative corpus recorded in report.json"',
         "    strings:", *declarations, "    condition:",

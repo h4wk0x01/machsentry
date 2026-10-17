@@ -16,6 +16,27 @@ JSON versionado e seus artefatos. O worker pode ser iniciado com:
 python scripts/machsentry_run.py analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
 ```
 
+O módulo já entrega `report.html` com modelo fixo e `report-view.json` v1.0,
+validado pelo `report-view.schema.json` (JSON Schema 2020-12) na publicação.
+O dashboard deve consumir essa projeção de apresentação; o `report.json` v2.1
+preserva o registro técnico completo. O envelope da CLI inclui `outputs.html`
+e `outputs.view`. A seção YARA recebe a seleção estruturada do gerador e não
+tenta interpretar a regra novamente.
+
+As oito seções são resumo, identificação, comportamentos/evidências, funções,
+scripts, rede, YARA e cobertura. Se não houver dados, a seção continua presente
+com estado explícito. O schema exige os campos: ausência de score é `null`,
+nunca zero; listas vazias não provam benignidade. Mudança de contrato exige
+uma nova versão. Pseudocódigo, detalhes MCP, versões de dependências e caminhos
+locais permanecem fora da apresentação principal.
+
+O HTML local usa CSS embutido, CSP restritiva e nenhuma execução de JavaScript.
+Para a integração web, o servidor deve aplicar autorização aos artefatos e
+resolver o identificador `detection.yar` para a rota de download autenticada.
+Nunca usar caminhos locais como URLs, nem inserir strings de amostras como HTML.
+O download só aparece para candidatas aprovadas no corpus fornecido e em uma
+análise sem falha. Isso não equivale a homologação de uso em produção.
+
 Cada trabalho possui sua sessão MCP, importações temporárias do Ghidra e limpeza.
 Arquivos ZIP precisam de um membro explícito; a importação escreve uma cópia
 local para o REA. Arquivos universais preservam a identidade do contêiner e de

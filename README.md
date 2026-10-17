@@ -6,6 +6,10 @@ assembly e pseudocódigo vêm das ferramentas existentes do REA. O módulo Pytho
 consome essas evidências pelo MCP e acrescenta relatório de comportamento,
 fragmentos AppleScript, score explicável e candidatas YARA com strings/opcodes.
 
+A entrega principal é `report.html`, com seções fixas para o analista e a
+justificativa de cada critério da regra YARA. `report-view.json` fornece o mesmo
+conteúdo por um contrato versionado para a futura integração ao dashboard.
+
 As amostras e os scripts recuperados não são executados; IOCs não são contatados.
 O relatório distingue evidência observada, comportamento inferido e cobertura
 incompleta. Pseudocódigo não é o fonte original, e a validação de uma YARA é

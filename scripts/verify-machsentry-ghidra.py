@@ -47,7 +47,8 @@ def verify_report_pipeline(output: Path, environment: dict, architectures: list[
     functions = report.get('functions', [])
     evidence = {item['evidence_id']: item for item in report.get('rea', {}).get('records', [])}
     validation = report.get('yara', {}).get('validation') or {}
-    verified = (run.returncode == 0 and envelope.get('ok') is True and report.get('schema_version') == '2.0'
+    verified = (run.returncode == 0 and envelope.get('ok') is True and report.get('schema_version') == '2.1'
+                and (destination / 'report.html').is_file() and (destination / 'report-view.json').is_file()
                 and {item['architecture'] for item in selected} == set(architectures)
                 and len(functions) == 4 * len(architectures)
                 and report.get('risk', {}).get('verdict') == 'high_risk_indicators'
@@ -63,7 +64,13 @@ def verify_report_pipeline(output: Path, environment: dict, architectures: list[
     yara_check = {}
     if verified:
         python = ROOT / '.venv-unpack' / ('Scripts/python.exe' if os.name == 'nt' else 'bin/python')
-        script = ('import json,sys,yara; rules=yara.compile(filepath=sys.argv[1]); '
+        script = ('import json,sys,yara; from pathlib import Path; from jsonschema import Draft202012Validator; '
+                  'folder=Path(sys.argv[1]).parent; '
+                  'view=json.loads((folder/"report-view.json").read_text(encoding="utf-8")); '
+                  'schema=json.loads((folder/"report-view.schema.json").read_text(encoding="utf-8")); '
+                  'Draft202012Validator.check_schema(schema); Draft202012Validator(schema).validate(view); '
+                  'assert len(view["detection"]["criteria"])>=5; '
+                  'rules=yara.compile(filepath=sys.argv[1]); '
                   'print(json.dumps({"positive":bool(rules.match(filepath=sys.argv[2])), '
                   '"negatives":[bool(rules.match(filepath=p)) for p in sys.argv[3:]]}))')
         checked = subprocess.run([str(python), '-c', script, str(destination / 'detection.yar'), str(source), *map(str, negatives)],
@@ -78,6 +85,7 @@ def verify_report_pipeline(output: Path, environment: dict, architectures: list[
             'sources_unchanged': unchanged, 'analyzed_architectures': [item['architecture'] for item in selected],
             'function_count': len(functions), 'pseudocode_count': sum(bool(item.get('pseudocode')) for item in functions),
             'evidence_count': len(evidence), 'independent_yara_check': yara_check,
+            'html_report': str(destination / 'report.html'), 'dashboard_schema_validated': bool(yara_check),
             'verified': verified and unchanged,
             'scope': 'Inert synthetic test data intentionally exercises heuristics; this is not a malware classification or a false-positive-rate measurement',
             'unmeasured': ['process-family CPU and peak memory', 'agent tokens']}

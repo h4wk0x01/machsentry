@@ -55,7 +55,7 @@ def analyze(source: Source, limits: Limits = Limits(), negatives: list[tuple[str
     for record in facts['rea']['records']:
         limits_text.extend(record.get('limitations', []))
     report = {
-        'schema_version': '2.0', 'engine': {'name': 'machsentry', 'version': __version__,
+        'schema_version': '2.1', 'engine': {'name': 'machsentry', 'version': __version__,
             'analysis_engine': 'REA', 'provider': 'ghidra', 'ruleset_version': RULESET_VERSION,
             'mcp_sdk': version('mcp'), 'capstone': version('capstone'), 'yara_python': version('yara-python')},
         'created_at': datetime.now(timezone.utc).isoformat(), 'mode': 'static_offline',

@@ -41,7 +41,7 @@ class CliTests(unittest.TestCase):
         code, envelope = self.run_cli(self.positive, '--output', output, '--benign-file', self.negative, '--json')
         self.assertEqual(code, 0, envelope)
         report = envelope['value']
-        self.assertEqual(report['schema_version'], '2.0')
+        self.assertEqual(report['schema_version'], '2.1')
         self.assertEqual(report['risk']['value'], 95)
         self.assertEqual(report['risk']['verdict'], 'high_risk_indicators')
         self.assertEqual(report['risk']['maliciousness'], 'unconfirmed')
