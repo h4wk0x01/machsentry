@@ -24,6 +24,7 @@ python -m venv .venv-unpack
 O código, as licenças e a documentação do REA de origem permanecem abaixo.
 O pacote npm `rea-agents`, seu MCP e seus comandos continuam com a identidade
 upstream; o módulo Python `facemessenger` é a nova entrada deste fork.
+As propostas automáticas de release do pacote npm ficam restritas ao upstream.
 O projeto está em [h4wk0x01/facemessenger](https://github.com/h4wk0x01/facemessenger).
 
 ---
