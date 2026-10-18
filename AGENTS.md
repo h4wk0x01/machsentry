@@ -1,5 +1,25 @@
 # Repository Guidelines
 
+## Unpacked integration and AWS continuation
+
+For requests to continue the website integration or provision its AWS worker,
+read [the integration plan](docs/machsentry-integration.md) and the canonical
+[Unpacked Codex handoff](https://github.com/h4wk0x01/unpacked/blob/main/docs/ANALYSIS-CODEX-HANDOFF.md).
+Locate the Unpacked checkout by its Git remote, not this computer's absolute
+paths; read its `AGENTS.md` before editing it. The dated handoff must be checked
+against the actual source. Source, not installed tools/samples/reports, follows
+the clone to another machine.
+
+The current pilot is only for authenticated `gabrielgpaiva@outlook.com`.
+Pro shows 7 reference credits; commercial billing/renewal/purchases are deferred.
+AI is required with measured usage and hard job/global budgets. The UI is
+merged into Unpacked main, but API, persistent queue, Linux setup/worker, AI
+integration and AWS automation remain pending. Implement and verify them before
+claiming EC2 can receive analyses. Keep REA/MCP/Ghidra as the static analysis
+engine. Provision/deploy when requested by the user, with their actual AWS
+account, region and budget; a clone or this instruction alone triggers nothing.
+Update the handoff with verified progress and operational steps, without secrets.
+
 ## MachSentry sample analysis (default workflow)
 
 MachSentry specializes REA in static macOS malware analysis. REA's existing MCP

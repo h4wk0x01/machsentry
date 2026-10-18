@@ -1,208 +1,520 @@
-# Integração futura do MachSentry com o Unpacked
+# Plano de integração MachSentry + Unpacked
 
-## Estado e fronteira do módulo
+Criado em 17/10/2026, atualizado em 18/10/2026. Estado: plano de implementação;
+serviço AWS ainda não implantado. Para executar em outro computador, começar
+pelo [guia de continuidade do Unpacked](https://github.com/h4wk0x01/unpacked/blob/main/docs/ANALYSIS-CODEX-HANDOFF.md).
 
-O MachSentry usa o REA com Ghidra como motor de engenharia reversa. O cliente
-Python em `macos_static/machsentry` compõe ferramentas MCP existentes e produz
-relatórios, scores e candidatas YARA. REA/Ghidra são os donos de funções,
-referências, instruções e pseudocódigo; o cliente preserva os registros Evidence
-e sua procedência. Capstone é um auxiliar para mascarar operandos nos padrões
-YARA, e yara-python compila e verifica essas candidatas.
+### Atualização de escopo — 18/10/2026
 
-A entrada é uma amostra local explicitamente selecionada; a saída é o relatório
-JSON versionado e seus artefatos. O worker pode ser iniciado com:
+O usuário decidiu começar por um piloto exclusivo de
+`gabrielgpaiva@outlook.com`, integrado à `main` do Unpacked. Pro terá 7 créditos
+de referência visual, **sem cobrança, consumo, renovação ou novos planos nesta
+fase**. A implementação inicial deve priorizar autorização da conta, upload,
+fila, REA/Ghidra, IA com teto operacional e resultado na tela. O livro de
+créditos e as regras comerciais abaixo ficam para a abertura posterior a
+assinantes. A IA continua no escopo; sua medição e limites de custo continuam
+necessários mesmo sem cobrar créditos do administrador. O merge da interface
+não implementa a API, o worker ou o instalador AWS.
 
-```text
-python scripts/machsentry_run.py analyze CAMINHO_DA_AMOSTRA --output DIRETORIO_DO_RESULTADO
+A interface foi integrada e enviada à `main` do Unpacked no commit `fd4b017`.
+Não houve deploy de produção. As propostas de cobrança da seção 6 e os campos
+comerciais indicados nas demais seções são **futuros**, não tarefas do piloto.
+Nenhuma decisão sobre vitalício/renovação precisa bloquear o piloto privado.
+
+## 1. Resultado e decisões
+
+O proprietário, e futuramente o assinante elegível, envia um Mach-O pela tela existente do Unpacked, acompanha a fila
+e recebe um relatório padronizado com comportamentos, evidências, funções,
+scripts, score e YARA. A IA interpreta as evidências e o pseudocódigo recuperados
+pelo REA/Ghidra. O custo varia conforme o uso, com reserva prévia e teto por análise.
+
+O usuário confirmou **IA desde a primeira versão, consumo variável e teto**.
+No piloto, a reserva é de orçamento interno de IA; não há débito de créditos.
+Os valores abaixo são propostas configuráveis para staging, não preços publicados:
+
+| Item        | Proposta de MVP                                                             |
+| ----------- | --------------------------------------------------------------------------- |
+| Interface   | Reutilizar a interface já integrada na `main` do Unpacked                   |
+| Motor       | MachSentry → MCP oficial do REA → Ghidra; somente análise estática          |
+| IA          | Interpretação estruturada das evidências; no máximo uma correção de saída   |
+| Hospedagem  | Servidor atual do Unpacked + uma EC2 Linux x86_64 dedicada ao worker        |
+| Fila        | Banco existente do site; um trabalho em execução                            |
+| Arquivos    | S3 privado, exclusão após processamento e rotina de limpeza                 |
+| Créditos    | 7 de referência no Pro, sem cobrança; franquia comercial futura na seção 6  |
+| Entrada     | Mach-O arm64/x86_64, thin ou universal, até 32 MiB                          |
+| Fora do MVP | ZIP/DMG/PKG, execução de malware, chat livre, novos planos e recarga avulsa |
+
+Não é necessário macOS na EC2 para interpretar Mach-O estaticamente. O provedor
+Ghidra do REA contempla Linux; o instalador deste fork ainda precisa de suporte
+Linux e verificação real. Não substituir o motor por um analisador independente.
+
+## 2. Inventário verificado
+
+Inspeção local atualizada: MachSentry `a263bf6bf`; Unpacked `fd4b017`, `main`,
+incluindo a antiga branch `codex/macho-analysis-ui`. Localizar cada checkout
+pelo remoto; caminhos do Unpacked abaixo são relativos à raiz desse projeto.
+Nenhum estado de produção foi verificado nesta rodada.
+
+| Código existente                                        | Estado observado e trabalho necessário                                                                                               |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Unpacked `components/analysis/analysis-panel.tsx`       | Tela pronta, usa `createDemoService()`; conectar dados reais mantendo o desenho                                                      |
+| Unpacked `lib/analysis/http-service.ts`                 | Cliente `/api/analysis`; trocar multipart por upload privado, permitir retomada e ampliar polling além dos atuais 5 minutos          |
+| Unpacked `lib/analysis/model.ts`                        | Contrato de protótipo; admitir score nulo, cobertura e evidências; reserva comercial fica para depois                                |
+| Unpacked `lib/analysis/demo.ts`                         | Demo identificado: probabilidade 97 e execução “observada” são inventadas; 7 créditos de referência, uso zero; integrar fixture real |
+| Unpacked `lib/analysis/file.ts` e `copy.ts`             | Limite de 50 MB; alinhar com 32 MiB e validação no servidor                                                                          |
+| Unpacked `db/schema.ts`, `db/index.ts`                  | Drizzle/libsql, SQLite local por padrão; faltam análise/fila/orçamento IA; tabelas comerciais ficam para depois                      |
+| Unpacked `lib/billing.ts`, `lib/stripe-webhook.ts`      | Preservar no piloto; elegibilidade/franquias e correção de atomicidade serão necessárias antes de integrar créditos comerciais       |
+| Unpacked `scripts/deploy.sh`, `deploy/remote-deploy.sh` | Deploy próprio nginx/systemd; preservar e adicionar configuração do serviço separado                                                 |
+| MachSentry `macos_static/machsentry/service.py`         | Relatórios REA/Ghidra; `runtime_llm_tokens = 0`; acrescentar interpretação por IA                                                    |
+| MachSentry `scripts/machsentry_setup.py` e runtime lock | Windows/macOS; falta bootstrap Linux x64 com hashes e dependências nativas fixados                                                   |
+
+Hoje não existem as rotas de análise, fila persistente, livro de créditos ou
+worker comercial. As telas e o cliente HTTP não representam um serviço ativo.
+O deploy do site contém premissas de host de 1 GiB/8 GB: isso é evidência do
+código, não medição da máquina atual, e não será presumido suficiente para Ghidra.
+
+## 3. Arquitetura mínima
+
+```mermaid
+flowchart LR
+    U[Dashboard Unpacked] --> A[API: sessão e autorização]
+    A --> D[(Banco: fila e orçamento de IA)]
+    A -->|autorização temporária| U
+    U -->|upload| S[(S3 privado)]
+    W[Worker EC2: um job por vez] -->|claim e heartbeat HTTPS| A
+    W -->|transferência autorizada| S
+    W --> R[Contêiner sem rede: MachSentry + REA + Ghidra]
+    R --> E[Evidências e pseudocódigo]
+    E --> L[Supervisor: limites de tokens e custo]
+    L --> M[API de IA]
+    M --> L
+    W -->|resultado validado| A
+    A -->|relatório e downloads| U
 ```
 
-O módulo já entrega `report.html` com modelo fixo e `report-view.json` v1.0,
-validado pelo `report-view.schema.json` (JSON Schema 2020-12) na publicação.
-O dashboard deve consumir essa projeção de apresentação; o `report.json` v2.1
-preserva o registro técnico completo. O envelope da CLI inclui `outputs.html`
-e `outputs.view`. A seção YARA recebe a seleção estruturada do gerador e não
-tenta interpretar a regra novamente.
+O banco do site é o único dono da fila e dos orçamentos internos. O worker consulta uma
+API restrita por HTTPS; não recebe o banco nem chaves Stripe. Fila SQL dispensa
+Redis/SQS/Celery/Kubernetes neste MVP. A admissão do job é atômica e a reserva de
+custo de IA é feita antes de cada chamada. Quando créditos comerciais forem
+habilitados, sua reserva e criação do job deverão compartilhar uma transação.
 
-As oito seções são resumo, identificação, comportamentos/evidências, funções,
-scripts, rede, YARA e cobertura. Se não houver dados, a seção continua presente
-com estado explícito. O schema exige os campos: ausência de score é `null`,
-nunca zero; listas vazias não provam benignidade. Mudança de contrato exige
-uma nova versão. Pseudocódigo, detalhes MCP, versões de dependências e caminhos
-locais permanecem fora da apresentação principal.
+O supervisor transfere arquivos e chama IA. REA/Ghidra roda em contêiner novo,
+sem rede externa, credenciais ou dados do site. Loopback interno necessário ao
+provedor permanece disponível. Depois de reter Evidence e confirmar fechamento
+das sessões, o supervisor seleciona o material que será enviado à IA.
 
-O HTML local usa CSS embutido, CSP restritiva e nenhuma execução de JavaScript.
-Para a integração web, o servidor deve aplicar autorização aos artefatos e
-resolver o identificador `detection.yar` para a rota de download autenticada.
-Nunca usar caminhos locais como URLs, nem inserir strings de amostras como HTML.
-O download só aparece para candidatas aprovadas no corpus fornecido e em uma
-análise sem falha. Isso não equivale a homologação de uso em produção.
+No MVP não há loop aberto de agente. A IA interpreta o código já recuperado;
+uma segunda chamada pode corrigir saída inválida. Lacunas que exigem investigar
+mais funções continuam explícitas. REA/Ghidra permanecem donos dos fatos.
 
-Cada trabalho possui sua sessão MCP, importações temporárias do Ghidra e limpeza.
-Arquivos ZIP precisam de um membro explícito; a importação escreve uma cópia
-local para o REA. Arquivos universais preservam a identidade do contêiner e de
-cada slice extraída pelo REA. Falha do provedor não autoriza substituir a análise
-por strings nem declarar o arquivo benigno. O worker deve finalizar suas sessões
-antes de informar conclusão; falhas e resultados parciais permanecem explícitos.
+## 4. Fluxo de upload e análise
 
-Esta documentação propõe a integração comercial. Não implementa nem confirma
-endpoints HTTP, uploads, fila, cobrança por créditos, interface do dashboard ou
-deploy. A análise local não deve depender de sessão web, Stripe ou banco de
-dados do Unpacked. O serviço web será responsável por autenticação, propriedade
-dos arquivos, trabalhos, créditos e entrega dos relatórios.
+1. Mostrar piloto sem cobrança e limites, selecionar arquivo e confirmar análise.
+   Franquia, renovação e confirmação de teto em créditos ficam para a fase comercial.
+2. `POST /api/analysis/uploads` exige sessão, conta proprietária, tamanho e
+   limites por conta. Devolve ID e formulário S3 assinado por 5 minutos, com
+   chave exata, MIME de transporte e `content-length-range` até 32 MiB.
+3. Navegador envia ao S3 privado; o site não mantém o binário inteiro na RAM.
+   Nome, extensão e MIME não comprovam formato. Sem upload público anônimo.
+4. `POST /api/analysis/jobs` recebe upload ID, idioma e Idempotency-Key.
+   O teto operacional vem da política do servidor.
+   O servidor confere o objeto e sela cópia fora do prefixo gravável pelo usuário,
+   condicionada à identidade observada para evitar corrida de sobrescrita.
+   ETag não é SHA-256. O worker verifica tamanho/digest nos bytes recebidos.
+5. Transação única valida propriedade/política/capacidade, consome upload
+   e cria job `queued`. Repetição idêntica retorna o mesmo job; mesma chave com
+   conteúdo diferente gera conflito. Cópia órfã por falha de transação é limpa.
+6. Worker adquire posse, confirma identidade e passa o arquivo pela admissão
+   REA. Executa o fluxo existente em diretório exclusivo, com prazo global.
+7. Supervisor valida saída estática, prepara Evidence limitada por tokens,
+   reserva custo da chamada de IA e valida schema/referências do resultado.
+8. Publica artefatos privados e seus digests. A API registra resultado e concilia
+   uso/custo interno sem repetir IA. Não há liquidação de créditos no piloto.
+9. A tela lê o estado persistido. Reabrir, atualizar e baixar não cria nova
+   análise nem nova chamada de IA. A amostra é excluída após a etapa estática;
+   relatórios e dados derivados têm retenção separada.
 
-As amostras são dados de entrada: não devem ser executadas, nem devem seus
-scripts, URLs ou comandos recuperados ser acionados. Análise estática pode
-identificar capacidades e indícios de comportamento; não observa execução e
-não estabelece que todas as funções foram recuperadas.
+Autorização S3 não é de uso único: pode sobrescrever/recriar o objeto até expirar.
+Por isso existem cópia selada, hash conferido, limites de pendências e limpeza de
+órfãos. [Upload S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html)
+e [política POST](https://docs.aws.amazon.com/AmazonS3/latest/developerguide/sigv4-HTTPPOSTConstructPolicy.html).
 
-## Pontos existentes no Unpacked
+## 5. IA com gasto limitado antes do envio
 
-O projeto inspecionado está em
-`C:\Users\mythic-user\Documents\projeto_mac_ma\unpacked`. Os caminhos abaixo
-são relativos a essa raiz. O projeto usa Next.js, Auth.js, Drizzle/libsql e
-Stripe. Não foi encontrado um sistema de créditos de análise, fila ou tabela
-de trabalhos de análise no código inspecionado.
+Candidato inicial para avaliar: Responses API com snapshot
+`gpt-5.4-mini-2026-03-17`, saída estruturada, sem ferramentas externas e sem
+troca automática por modelo mais caro. A qualidade ainda precisa de avaliação
+com analista; escolha econômica não comprova qualidade de análise de malware.
 
-| Caminho                                    | Responsabilidade existente e uso na integração                                                                                                        |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `app/[locale]/track/page.tsx`              | Compõe o dashboard e seus painéis. É o ponto de composição para um futuro painel de análises.                                                         |
-| `components/dashboard/views.ts`            | Define as abas e a seleção por `?view=`. Uma nova aba exige uma entrada nesse contrato.                                                               |
-| `components/dashboard/dashboard-shell.tsx` | Prepara os textos e dados do quadro do dashboard.                                                                                                     |
-| `components/dashboard/dashboard-frame.tsx` | Renderiza navegação, ícones e painéis.                                                                                                                |
-| `lib/auth.ts`                              | Resolve a conta autenticada e seus dados por requisição.                                                                                              |
-| `lib/access.ts`                            | Verifica acesso pago ativo e não expirado. Isso não representa saldo de créditos.                                                                     |
-| `db/schema.ts`                             | Contém usuários, direitos de acesso, eventos Stripe e tentativas dos exercícios. Os relatórios de exercícios não são trabalhos de análise de malware. |
-| `db/index.ts`                              | Compõe o acesso Drizzle/libsql; a configuração local usa SQLite.                                                                                      |
-| `lib/config.ts`                            | Centraliza produtos e planos. Ainda não define franquia, preço ou validade de créditos de análise.                                                    |
-| `lib/billing.ts`                           | Concede e atualiza acesso após checkout e pagamento de faturas.                                                                                       |
-| `lib/stripe-webhook.ts`                    | Processa os eventos Stripe verificados.                                                                                                               |
-| `app/api/stripe/webhook/route.ts`          | Recebe e verifica a assinatura do webhook Stripe.                                                                                                     |
-| `app/api/artifacts/[id]/route.ts`          | Entrega artefatos de exercícios após verificar sessão, token, termos e acesso. Serve como referência de autorização, não como endpoint de upload.     |
-| `lib/artifacts/signing.ts`                 | Implementa tokens de download com expiração e vínculo ao usuário.                                                                                     |
+Preços publicados consultados: US$ 0,75 por milhão de tokens de entrada,
+US$ 0,075 de entrada em cache e US$ 4,50 de saída. Confirmar tarifa e acesso da
+conta antes da ativação; processamento regional pode ter adicional.
+[Modelo e preços](https://developers.openai.com/api/docs/models/gpt-5.4-mini).
 
-Uma futura aba de análises pode apresentar envio de arquivo, custo, saldo,
-histórico e resultado. Textos devem acompanhar os idiomas já suportados. O
-dashboard deve ler estados persistidos; fechar a página não cancela nem perde
-um trabalho. Trechos de AppleScript, strings e nomes vindos da amostra devem
-ser apresentados como texto, sem execução ou interpretação como HTML.
+| Parâmetro de staging | Proposta                                                  |
+| -------------------- | --------------------------------------------------------- |
+| Chamadas             | Até 2, incluindo correção, sem retries invisíveis do SDK  |
+| Entrada total do job | 32.000 tokens somando pedidos, instruções e schemas       |
+| Saída total do job   | 8.000 tokens incluindo raciocínio faturável               |
+| Primeira chamada     | Até 24.000 de entrada / 6.000 de saída                    |
+| Correção eventual    | Apenas saldo restante, até 8.000 / 2.000                  |
+| Teto de IA           | US$ 0,075/job; também respeitar saldo do orçamento global |
+| Teto global inicial  | US$ 2/dia e US$ 20/mês, configuráveis                     |
 
-## Contrato proposto entre web e worker
+Ao preço citado, 32.000 de entrada sem cache e 8.000 de saída custam US$ 0,060.
+É cálculo de teto de tokens, não média medida. Não depender de desconto de cache
+para admitir um pedido; aplicar o desconto efetivo ao liquidar.
 
-O navegador recebe identificadores opacos. Caminhos do sistema de arquivos,
-argumentos do processo, regras de custo e diretórios de saída são resolvidos
-pelo servidor. O worker recebe uma referência privada ao arquivo, identidade
-esperada, opções validadas e um identificador de trabalho; lê os bytes,
-confirma SHA-256 e tamanho e inicia o cliente de relatórios com REA/Ghidra em um ambiente isolado.
+Antes de cada chamada, contar o pedido completo com contador/tokenizer compatível
+e margem conservadora de framing; reservar atomicamente seu pior custo de
+entrada/saída nos limites do job, dia e mês. Não enviar se qualquer orçamento
+for insuficiente. Limitar `max_output_tokens`, que inclui raciocínio; resposta
+incompleta não vira relatório concluído.
+[Referência da API](https://developers.openai.com/api/reference/python/resources/responses/methods/create).
 
-Uma API possível, ainda não implementada, é:
+Registrar intenção, modelo/snapshot, versão de preço/prompt, request ID, uso de
+entrada/cache/saída e custo de cada tentativa. Não somar raciocínio duas vezes
+quando já faz parte da saída. Em perda de conexão após envio, marcar
+`usage_unknown`, manter reservado o pior custo interno e não repetir
+automaticamente uma chamada que pode ter sido faturada. Timeout e alerta do
+provedor sozinhos não limitam gasto. A conciliação pode liberar orçamento interno
+somente com desfecho conhecido; uso desconhecido nunca é contabilizado como zero.
 
-| Operação proposta                          | Resultado e autorização                                                                                                                        |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/macos-analysis/uploads`         | Admite um upload privado e limitado, vinculado à conta. Não inicia análise nem consome créditos.                                               |
-| `POST /api/macos-analysis/jobs`            | Recebe `upload_id`, opções e uma chave de idempotência. Valida acesso e saldo, reserva créditos e cria o trabalho. Retorna `202` com `job_id`. |
-| `GET /api/macos-analysis/jobs/:id`         | Retorna estado e resumo apenas para o proprietário.                                                                                            |
-| `GET /api/macos-analysis/jobs/:id/report`  | Entrega o relatório persistido de um trabalho concluído, após verificar propriedade.                                                           |
-| `POST /api/macos-analysis/jobs/:id/cancel` | Solicita cancelamento; a resposta não deve declarar limpeza concluída antes de o worker confirmar.                                             |
-| `GET /api/macos-analysis/jobs/:id/yara`    | Entrega a regra e o estado de sua validação quando disponíveis.                                                                                |
+A IA recebe identidade, cobertura, achados e pseudocódigo selecionado, não o
+binário inteiro. Devolve resumo e inferências com `evidence_ids`. Validar que
+IDs, VAs e arquiteturas existem e correspondem; isso valida referência, não
+garante correção semântica de toda inferência. Testar com revisão de analista.
+Strings e scripts são dados não confiáveis, nunca instruções. Não disponibilizar
+shell, navegação, escrita ou acesso a IOC à IA.
 
-No relatório, preservar as identidades da amostra e de cada arquitetura,
-evidências com posições na origem, achados, funções, scripts, score e veredito,
-regra YARA, resultados de validação, cobertura, limitações e métricas. O
-consumidor deve validar a versão e o formato do JSON antes de armazená-lo como
-resultado concluído. Mudanças incompatíveis exigem nova versão do contrato.
-Não reconstruir evidências no frontend a partir do resumo textual.
+Hash, score, funções, regra e validação YARA continuam provenientes do motor.
+A IA não pode inventar execução, promover regra rejeitada, apagar limitações ou
+chamar pseudocódigo de fonte original. Gerar interpretação no idioma do job;
+troca de tela/idioma não dispara nova chamada paga.
 
-O endereço de uma função precisa informar arquitetura e coordenada virtual
-estática; offsets de arquivo continuam offsets. Uma string suspeita não deve
-ser promovida a função maliciosa sem evidência de atribuição. O score deve
-expor os fatores que contribuíram para ele e suas limitações, sem representar
-uma probabilidade calibrada. Cobertura parcial e resultado inconclusivo são
-resultados válidos e precisam aparecer na interface.
+Usar `store: false` e chave de projeto dedicada fora do contêiner. Informar ao
+usuário que trechos recuperados vão ao provedor. Essa opção não garante retenção
+zero em todos os mecanismos do provedor; verificar controles de dados antes de
+prometer exclusão. [Política de dados](https://developers.openai.com/api/docs/guides/your-data).
 
-## Trabalhos, créditos e idempotência
+## 6. Créditos e renovação — fase comercial futura
 
-As novas entidades devem separar arquivo privado, trabalho, resultado e razão
-de créditos. Um saldo editável sem histórico não é suficiente para conciliar
-tentativas, cancelamentos, falhas e pagamentos repetidos.
+**Não implementar esta seção no piloto privado.** Manter apenas os 7 créditos
+de referência da interface; medir e limitar custos de IA conforme seção 5.
+Estas propostas preservam o planejamento anterior para uma decisão posterior.
 
-1. **Admissão:** validar a sessão, propriedade do upload, acesso aplicável,
-   opções, limites e custo. O custo e sua versão são calculados no servidor e
-   registrados no trabalho.
-2. **Reserva:** na mesma transação, conferir saldo disponível, reservar o
-   custo, criar o trabalho e registrar a intenção durável de despacho. A
-   restrição única `(user_id, idempotency_key)` deve devolver o mesmo trabalho
-   para uma repetição idêntica. A mesma chave com entradas diferentes deve
-   produzir conflito, sem nova reserva.
-3. **Despacho:** publicar a intenção por uma outbox transacional ou mecanismo
-   equivalente. Uma falha entre banco e fila não pode deixar uma reserva sem
-   trabalho recuperável nem criar uma segunda cobrança.
-4. **Execução:** usar aquisição exclusiva com lease, número de tentativa e
-   token de posse. Um worker antigo não pode concluir o trabalho depois de
-   perder a posse. Novas tentativas reutilizam a reserva existente.
-5. **Liquidação:** publicar um resultado validado em armazenamento durável e
-   concluir o trabalho junto com o consumo da reserva, em uma transação. A
-   referência do resultado deve existir antes desse commit. Repetir a
-   conclusão não consome créditos novamente.
-6. **Liberação:** falha terminal ou cancelamento não faturável libera a
-   reserva uma única vez, após o desfecho conhecido. Conciliar a corrida entre
-   conclusão e cancelamento por transição condicional; somente um estado
-   terminal vence.
-7. **Estorno:** devolver um consumo já liquidado exige um lançamento
-   compensatório com chave única e motivo. Isso é diferente de liberar uma
-   reserva ainda não consumida. Nunca apagar o lançamento original.
+Valores comerciais propostos para `lib/config.ts`, revisáveis antes da produção:
 
-Estados sugeridos para o trabalho são `queued`, `running`, `succeeded`,
-`failed` e `cancelled`, com solicitação de cancelamento registrada
-separadamente. Cada transição deve verificar o estado anterior e a posse
-quando aplicável. A política comercial precisa definir quais resultados
-parciais são faturáveis; o worker não deve decidir preço com base no score.
+| Parâmetro                 | Proposta                                                               |
+| ------------------------- | ---------------------------------------------------------------------- |
+| Franquia                  | 7 créditos/mês                                                         |
+| Base por análise entregue | 0,50 crédito                                                           |
+| Parcela variável          | 1 crédito por US$ 0,05 de custo de IA                                  |
+| Teto por job              | 2 créditos, limitado pelo saldo disponível                             |
+| Precisão                  | Inteiros: 1 crédito = 1.000 unidades                                   |
+| Renovação                 | Dia 1, 00:00 UTC; mostrar data no fuso do cliente                      |
+| Validade                  | Sem acumular; cada franquia tem período próprio                        |
+| Elegibilidade             | Pro mensal/anual e Pro PIX anual, com pagamento confirmado             |
+| Vitalício                 | Inclusão da franquia recorrente pendente; não conceder automaticamente |
 
-Concessões de créditos por pagamento devem ser únicas por compra ou fatura e
-período de franquia, inclusive quando eventos diferentes descrevem o mesmo
-pagamento. A chave do evento Stripe, sozinha, não identifica a concessão. No
-código inspecionado, `processStripeEvent` registra o evento antes de executar
-as alterações de negócio, sem transação abrangente nessa função. A concessão
-de créditos precisa assegurar atomicidade entre deduplicação e lançamento,
-para que uma falha após o registro não descarte a concessão na tentativa
-seguinte.
+Fórmula, custo em micros de dólar e cobrança em unidades de crédito:
 
-Consultar, paginar e baixar um relatório já adquirido não deve criar um novo
-trabalho nem consumir créditos novamente. Um cache de análise deve considerar
-SHA-256, arquiteturas, opções, versão do núcleo, dependências relevantes,
-regras de classificação e geração YARA. Cache compartilhado não autoriza
-acesso ao relatório de outra conta. A política de custo para uma nova análise
-que reutiliza cache precisa ser explícita.
+```text
+cobranca = 500 + ceil(custo_IA_micros * 1000 / 50000)
+teto_IA_micros = min(75000, floor((reserva - 500) * 50000 / 1000))
+```
 
-## Lacunas antes de disponibilizar o serviço
+Exemplo: 20.000 tokens de entrada + 4.000 de saída, sem cache, custam US$ 0,033.
+O relatório custa **1,16 crédito**: 0,50 base + 0,66 de IA. Reservados 2, devolver
+0,84. Sete créditos não significam sete análises; a interface deve aceitar frações
+e mostrar teto e consumo efetivo. Se saldo < 2, só admitir com teto menor quando
+comportar uma interpretação útil; calibrar esse mínimo nos testes de qualidade.
+Não reduzir silenciosamente a investigação nem deixar saldo negativo.
 
-- Definir franquia, renovação, expiração, preço por análise, elegibilidade de
-  membros vitalícios e política para resultado parcial, cancelamento e estorno.
-- Implementar migrações, razão de créditos, transações, outbox ou fila,
-  worker, leases, reconciliação e autorização por proprietário em cada rota.
-- Definir armazenamento privado, prazo de retenção e exclusão de amostras e
-  relatórios. Manter amostras fora de `public/`, do bundle web e do Git.
-- Fixar e testar dependências Python e imagens de implantação. REA, Ghidra, Capstone
-  e YARA interpretam bytes não confiáveis; executar o worker com limites de
-  tempo, memória, disco e concorrência, sem credenciais do servidor web e sem
-  saída de rede durante a análise. Não reutilizar diretórios entre trabalhos.
-- Validar bytes e estrutura do formato, não somente nome ou MIME. Limites de
-  upload e expansão devem preceder alocação. Suporte futuro a arquivos
-  compactados precisa de orçamento e regras de extração próprios.
-- Testar submissões simultâneas, duplicação de eventos e mensagens, falta de
-  saldo, falhas entre etapas, retomada após queda, perda de lease, cancelamento
-  durante finalização e acesso entre contas.
-- Medir tarefas completas com amostras e controles benignos representativos:
-  tempo decorrido, CPU, pico de memória da família de processos e tamanho dos
-  relatórios; separar execuções frias e quentes. Se um modelo for incorporado,
-  medir também tokens e custo. O núcleo local não estabelece essas métricas
-  para um futuro deploy web.
-- Avaliar regras YARA contra a amostra, variantes disponíveis e um corpus
-  benigno documentado. Informar quais arquivos foram testados e seus
-  resultados; não anunciar ausência universal de falsos positivos. As regras
-  reconhecem padrões estáticos associados aos achados, não observam o
-  comportamento em execução.
+Reserva pertence à franquia original. Job que atravessa o mês liquida nela;
+devolução expirada não aumenta a nova. Conceder a franquia atual com chave única
+`(user_id, credit_program, month_utc)`, mediante elegibilidade, na consulta/admissão
+e na conciliação. Não depender de cron exatamente à meia-noite. Pro anual recebe
+mensalmente, sem antecipar o ano; assinaturas sobrepostas não duplicam franquia.
+Para assinantes atuais, conceder o mês corrente uma vez, sem recompor meses antigos.
 
-As verificações locais do núcleo não substituem os testes de isolamento,
-concorrência, cobrança e autorização do serviço. Esta proposta mantém a
-integração futura separada do resultado da análise estática já disponível por
-CLI.
+Separar validade paga da tolerância do acesso a conteúdo. Checkout provisório e
+graça não geram créditos. Guardar período pago confirmado como fato de cobrança;
+cancelamento ao fim do período mantém elegibilidade até essa data. Hoje
+`processStripeEvent` registra evento antes das mutações de negócio: corrigir
+atomicidade ou tornar processamento pendente recuperável antes de integrar
+créditos. Falha após deduplicação não pode perder concessão no retry.
+
+| Desfecho                                                                                  | Tratamento proposto                                                                       |
+| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Estático + IA válidos, todas as slices solicitadas processadas e cleanup confirmado       | Cobrar base + IA efetiva, até o teto                                                      |
+| Funções não examinadas pelo limite documentado                                            | Resultado limitado pode ser cobrado; cobertura permanece explícita                        |
+| Slice/provedor falhou, cleanup não confirmado, IA inválida/recusada ou orçamento esgotado | Liberar reserva; entregar dados parciais identificados; custo interno continua registrado |
+| Cancelado ainda na fila                                                                   | Liberar reserva, sem processamento                                                        |
+| Histórico/refresh/download                                                                | Sem cobrança ou nova IA                                                                   |
+
+No MVP, cancelamento garantido somente na fila. Após início, fechar a tela
+apenas deixa de acompanhar; resultado fica no histórico. Interrupção
+administrativa por limites/falhas permanece possível. Limitar tentativas
+repetidas por conta/amostra; falhas subsidiadas entram no orçamento global.
+Estorno é lançamento compensatório com referência única, nunca apagar histórico.
+
+Créditos não garantem margem. Nessa conversão, 7 créditos limitam IA faturável
+a até US$ 0,35/mês por conta, antes da parcela base. Falhas são despesa separada
+limitada. Somar EC2, armazenamento, impostos, pagamentos e suporte para validar
+rentabilidade; nenhum custo médio/volume de produção foi medido.
+
+## 7. Dados e APIs
+
+Migrações aditivas no Unpacked; transações curtas, constraints e atualizações
+condicionais no banco, não somente verificações prévias em JavaScript:
+
+As entidades `analysis_credit_bucket` e `analysis_credit_entry` são futuras.
+No piloto, implementar as demais responsabilidades sem ledger comercial.
+
+| Entidade proposta        | Responsabilidade/invariantes                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `analysis_upload`        | Dono, objeto temporário/selado, bytes, digest declarado/verificado, expiração e consumo único                              |
+| `analysis_job`           | Dono, upload, chave idempotente + fingerprint, versões, idioma, estado/fase, tentativa, lease/token, deadlines e resultado |
+| `analysis_worker`        | Identidade, versão, heartbeat, slot exclusivo e recuperação                                                                |
+| `analysis_credit_bucket` | Concessão, período e expiração; unicidade por conta/programa/mês                                                           |
+| `analysis_credit_entry`  | Grant/reserve/settle/release/refund/expire, unidades inteiras e referência única; razão imutável                           |
+| `analysis_ai_call`       | Job/tentativa, estado, teto, preço/modelo, usage, request ID e custo; sem segredos                                         |
+| `analysis_budget_period` | Custo realizado/reservado por dia/mês, reserva atômica                                                                     |
+| `analysis_result`        | Versões, hashes, objetos privados, retenção e validação                                                                    |
+
+Reutilizar o prefixo `/api/analysis` já previsto pelo cliente; não criar outra
+API paralela. Atualizar contrato/clientes e servidor juntos:
+
+| Rota proposta                      | Resultado                                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `GET /quota`                       | Política do piloto e referência sem cobrança; saldo/renovação reais só na fase comercial |
+| `POST /uploads`                    | Nome/tamanho/digest declarado → ID e autorização temporária                              |
+| `POST /jobs`                       | Upload ID, idioma, Idempotency-Key → 202 e job ID; teto definido no servidor             |
+| `GET /jobs/:id`                    | Estado persistido, fase, datas, custo e resultado disponível                             |
+| `POST /jobs/:id/cancel`            | Cancela `queued`; conflito se execução já começou                                        |
+| `GET /reports`                     | Histórico paginado sem todos os relatórios completos                                     |
+| `GET /reports/:id`                 | Resultado versionado do proprietário                                                     |
+| `GET /reports/:id/artifacts/:kind` | Artefato permitido autenticado, sem caminho arbitrário                                   |
+
+Cada operação verifica propriedade; IDs opacos não bastam. Proteção de origem/CSRF,
+rate limits e erros estruturados. Sem credenciais/URLs assinadas/caminhos internos
+em logs ou respostas. Evidências originais continuam preservadas: não redigir
+hashes, strings ou IOC apenas por parecerem sensíveis.
+
+Worker API em `/api/internal/analysis`: claim, heartbeat, reserva/liquidação de
+chamada IA, complete e fail. Credencial aleatória por worker, escopo restrito,
+hash no site, segredo no SSM e rotação. Toda mutação exige tentativa e token
+de posse válidos. Transferências por autorizações de objeto limitadas ao job.
+O site é o único dono dos orçamentos internos; o navegador não dita custo.
+O mesmo princípio se aplicará a créditos comerciais quando forem habilitados.
+
+## 8. Fila e recuperação
+
+Estados: `queued`, `running`, `finalizing`, `completed`, `partial`, `failed`,
+`cancelled`, `expired`. Fases: `static_analysis`, `ai_review`, `publishing`,
+`cleanup`. Resultado e cobrança têm estados separados. Mostrar fase, sem
+percentual fictício. O cliente deve recuperar job por ID após refresh.
+
+Parâmetros iniciais para medir em staging:
+
+- Um slot global, um job não terminal por conta e fila de até 20.
+- Um upload pendente por conta, limites por conta/IP; rejeitar fila cheia antes
+  de autorizar novos uploads. Pausar admissões sem worker saudável.
+- Prazo global de 15 minutos para a etapa estática, 3 para IA e 2 para
+  finalização: 20 minutos por tentativa. O timeout atual por chamada MCP não basta.
+- 3 GiB para toda a família de processos, 2 vCPUs, 256 PIDs e 4 GiB de disco por
+  job. Heap JVM não representa toda a memória. Perfil inicial: 64 funções/slice.
+- Heartbeat 15 s, lease 90 s, polling com recuo e retomada. Uma repetição somente
+  para falha transitória de infraestrutura; não repetir OOM/entrada inválida nem
+  chamada de IA com faturamento desconhecido.
+
+Lease/fencing impede publicação e cobrança por worker antigo, mas não mata seu
+processo. Não reatribuir o slot antes de confirmar término do contêiner anterior.
+O prazo local vale mesmo sem rede. No boot, reconciliar recursos por identidade;
+em troca de host, parar/fencear EC2 anterior antes de liberar a substituta.
+Não usar apenas PID como prova de propriedade.
+
+Publicar artefatos antes de liquidar. Se a API falhar após publicação, repetir
+só a conclusão, com os mesmos digests, não análise/IA. Se confirmação se perder
+depois do commit, devolver estado já concluído. Cleanup não confirmado bloqueia
+slot e alerta; manter responsabilidade pela limpeza até resolver.
+
+## 9. Resultado na tela existente
+
+Preservar `report-view.json` v1.0 e `report.json` v2.1 originais. Criar envelope
+de serviço versionado com `static_report`, `ai_assessment`, estado e
+referências de artefatos. Interpretação por IA possui schema próprio, versões
+de modelo/prompt e referências Evidence. Adapter TypeScript transforma
+apresentação, não reinterpreta bytes, strings, assembly ou regras.
+Medição interna de custo permanece separada de cobrança comercial futura.
+
+| Área existente        | Origem/ajuste                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| Identidade            | `sample.name`, `sha256`, `size_bytes`, `architectures`; sem inventar hashes adicionais     |
+| Score                 | `assessment.score`, inclusive `null`; “score heurístico”, nunca probabilidade calibrada    |
+| Resumo/comportamentos | Fatos estáticos + interpretação de IA identificada, com evidências                         |
+| Funções               | VA e arquitetura, nomes e comportamentos; pseudocódigo recuperado em detalhe opcional      |
+| MITRE ATT&CK          | Só mapeamento explícito/verificável; indisponível no contrato atual, não copiar do demo    |
+| Persistência          | Indícios com evidências; ausência de achado não comprova ausência de persistência          |
+| Scripts               | Texto com origem/posição; nunca executar ou interpretar como HTML                          |
+| IOCs                  | Indicadores recuperados, copiáveis; não abrir endpoints automaticamente                    |
+| YARA                  | Regra, critérios, wildcard/origem, corpus e limitações; rejeitada sem download de detecção |
+| Cobertura             | Estado por slice, funções omitidas, falhas e limitações sempre presentes                   |
+| Créditos              | Piloto: 7 de referência, sem cobrança; saldo/renovação comerciais somente depois           |
+
+Manter cards, cores e navegação existentes. As oito seções do HTML permanecem
+fixas; IA enriquece interpretação sem modificar fatos. HTML/JSON para download
+representam o mesmo resultado publicado, sem IA na exportação. Evidência
+técnica fica em artefatos separados autenticados.
+
+Primeiro entregável visual: carregar o resultado retido de
+`reports/macos/html-report-v1/mcp-report/preview/report-view.json` na tela dessa
+interface na `main`, com selo “fixture inerte / teste de integração”. Esse arquivo é ignorado
+no Git; criar fixture segura e mínima de apresentação para os testes. Não chamar
+isso de malware real nem inventar uma chamada de IA. Validar PT/EN e desktop/mobile.
+O acesso exclusivo e a referência de créditos já foram alterados; a integração
+de um resultado REA/Ghidra real na tela ainda não foi implementada.
+
+## 10. Retenção e isolamento
+
+| Dado                                   | Política proposta                                                                  |
+| -------------------------------------- | ---------------------------------------------------------------------------------- |
+| Upload abandonado                      | Excluir em até 1 hora pela rotina operacional                                      |
+| Amostra na fila                        | Expirar em 24 h desde upload, liberar reserva e excluir                            |
+| Amostra e cópias analisadas            | Excluir após etapa estática e cleanup, inclusive falhas                            |
+| Projeto temporário Ghidra              | Exclusivo por job; reter Evidence, encerrar e remover; reconciliar no boot         |
+| Relatório/scripts/evidências derivadas | 30 dias privados; informar que retêm dados extraídos                               |
+| Logs                                   | 7 dias, sem binários, corpos de prompt, scripts ou credenciais                     |
+| Livro de créditos                      | Retenção administrativa separada, sem amostra; prazo a definir antes do lançamento |
+
+S3 bloqueia acesso público, usa TLS e criptografia. Bucket de amostras sem
+versionamento/replicação/backups que retenham cópias ocultas. Exclusão explícita,
+sweeper a cada 5 minutos e no boot, lifecycle de 1 dia como defesa adicional.
+Lifecycle é assíncrono e delete marker não elimina versões antigas. Registrar
+atrasos, repetir falhas e alertar; não prometer prazo físico absoluto em incidente.
+[Expiração S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/lifecycle-expire-general-considerations.html).
+
+Acesso expira na aplicação mesmo se limpeza atrasar. Sem cache entre contas.
+Amostras nunca em `public/`, Git, imagem Docker ou snapshots do host. Usar área
+de trabalho criptografada efêmera sem snapshots automáticos. Exclusão de arquivo
+não comprova apagamento físico de todos os blocos do provedor.
+
+Contêiner sem privilégios: usuário dedicado, base read-only, capabilities
+removidas, no-new-privileges, filtro de syscalls, rede isolada, sem socket Docker,
+IMDS ou credenciais; somente entrada read-only e saída exclusiva do job.
+Supervisor fica fora dele. Containers compartilham kernel: host dedicado, sem
+dados/chaves do site, atualizado e submetido a testes de isolamento antes da beta.
+
+## 11. AWS e instalação automatizada
+
+Proposta: Ubuntu LTS x86_64, `t3a.medium` (2 vCPU/4 GiB), 30 GB gp3 criptografado.
+Escolher região conforme site e requisitos dos dados; us-east-1 é só referência
+de preço. Validar disponibilidade e dimensionar com medições reais antes de fixar.
+Usar CPU credits **Standard** explicitamente: evita excedente Unlimited, mas
+reduz desempenho quando créditos de CPU acabam; monitorar fila/CPUCreditBalance.
+
+Instância sem portas de entrada, administrada por SSM, saída HTTPS para site,
+AWS e IA. IPv4 público para saída dispensa NAT Gateway neste desenho; entrada
+permanece bloqueada. Contêiner de análise sem saída de rede.
+[T3a](https://aws.amazon.com/ec2/instance-types/t3/) e
+[Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html).
+
+Estimativa ilustrativa para 730 horas/mês, sem descontos ou impostos:
+
+| Item                       | Cálculo                                                   |
+| -------------------------- | --------------------------------------------------------- |
+| t3a.medium Linux us-east-1 | US$ 0,0376/h → US$ 27,45/mês                              |
+| Um IPv4 público            | US$ 0,005/h → US$ 3,65/mês                                |
+| 30 GB gp3                  | US$ 2,40/mês se tarifa regional = US$ 0,08/GB-mês         |
+| Base                       | US$ 33,50 + S3, requisições, logs, registry, tráfego e IA |
+
+EBS usa hipótese de tarifa do exemplo oficial, a confirmar por região. Não
+inclui servidor atual do site e não promete capacidade por esse preço. Alertas
+AWS não são limite síncrono de gasto.
+[IPv4](https://aws.amazon.com/vpc/pricing/) e [EBS](https://aws.amazon.com/ebs/pricing/).
+
+Entregáveis de automação a implementar:
+
+| Repositório / arquivo proposto                  | Responsabilidade                                                                 |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| MachSentry `scripts/machsentry_setup.py` + lock | Linux x64, hashes fixos, `procps`, build e doctor real; preservar setup upstream |
+| MachSentry `deploy/worker/Dockerfile`           | Imagem REA/Ghidra/Python/JDK/Node/YARA testada, sem amostra/chave                |
+| MachSentry `deploy/aws/worker.yaml`             | CloudFormation: EC2, EBS, rede/roles mínimos, S3, SSM, logs limitados            |
+| MachSentry `scripts/deploy_machsentry_aws.py`   | Preflight, change set, deploy explícito, smoke test e configuração de saída      |
+| MachSentry `deploy/worker/bootstrap.sh`         | Host dedicado/systemd, imagem por digest, readiness e recuperação                |
+| MachSentry supervisor                           | Claim, limites, REA, IA, resultados e limpeza                                    |
+| Unpacked migrações + `lib/analysis/server/`     | Autoridade de fila/API/storage e orçamento interno de IA                         |
+| Unpacked deploy existente                       | Backup/migração, registro de worker, configuração e feature flag                 |
+
+Experiência operacional pretendida: informar uma vez conta/região AWS, URL e
+identidade do servidor web, credencial de registro do worker e chave de IA em
+SSM SecureString; executar um comando. O script cria infraestrutura, instala,
+testa fixture inerte e confirma site/Ghidra/storage/worker antes de dizer “pronto”.
+Imagem construída no CI; não compilar ferramentas a cada job na EC2 pequena.
+Fixar AMI/digest por release. Segredos nunca em Git, UserData, argumentos ou outputs.
+
+Readiness com `CreationPolicy` e sinal de sucesso; falha de instalação não pode
+ser deploy saudável. Acesso S3 do site por instance role se hospedado em EC2;
+confirmar ambiente real e configurar identidade adequada antes de habilitar.
+[CloudFormation](https://docs.aws.amazon.com/AWSCloudFormation/latest/TemplateReference/aws-attribute-creationpolicy.html).
+
+Automação deve oferecer plan/deploy/status/logs/drain/rollback. Atualização drena
+trabalho antes de trocar imagem; rollback conserva saldos/resultados e não desfaz
+migração destrutivamente. Desinstalação não apaga banco/relatórios por padrão.
+**Esses scripts ainda não existem: este plano especifica sua implementação.**
+
+## 12. Sequência e aceite
+
+| Etapa            | Entrega verificável                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| 1. Dados na tela | Adapter da fixture retida, score/cobertura corretos, preview PT/EN desktop/mobile    |
+| 2. Linux         | Setup/imagem e fluxo real MCP/Ghidra, thin/FAT, cleanup e recursos medidos           |
+| 3. IA            | Evidence selecionada, schema, orçamento, usage, referências e interpretação revisada |
+| 4. Serviço       | Migrações, orçamento IA, API, upload privado, fila, worker, histórico e downloads    |
+| 5. AWS           | Script/template, SSM, readiness, limpeza, métricas e rollback                        |
+| 6. Piloto        | Fluxo real no dashboard com custos conciliados, somente proprietário; sem cobrança   |
+
+Critérios de integração; cenários comerciais ficam para antes da abertura a
+assinantes, sem bloquear o piloto privado:
+
+- Linux real: arm64/x86_64/FAT, entrada inválida, timeout/OOM, hash imutável,
+  encerramento de processos e cobertura honesta. Sem substituir o REA.
+- Concorrência: duas submissões, limite de fila/slot, idempotência e reserva
+  atômica do orçamento IA. Futuros: saldo comercial insuficiente, renovação
+  duplicada e virada do mês com reserva de créditos em andamento.
+- Recuperação: publicação com resposta perdida, finalização duplicada, lease
+  vencido, reboot, disco cheio e restauração sem repetir cobrança/IA.
+- IA: cache, raciocínio, truncamento, JSON inválido, recusa, 429 e timeout após
+  envio; nunca disparar chamada fora do orçamento nem tratar usage desconhecido como zero.
+- Fidelidade: prompt injection em strings, VA inventada, falsa execução,
+  referência incorreta e limitações omitidas; avaliação por analista.
+- Autorização: conta A não lê/baixa/cancela/sobrescreve B; URLs expiradas,
+  objeto substituído, XSS e SSRF; nenhum artefato ou log público.
+- Limpeza: sucesso/falha/abandono/expiração; sem binários em backup/imagem/log.
+- UI: PT/EN/mobile/desktop, refresh na fila, worker offline, orçamento esgotado,
+  IA falha, resultado parcial, score nulo e YARA rejeitada.
+- YARA: compilação e testes no corpus informado, sem promessa universal de
+  ausência de falsos positivos. IA não altera o estado de validação.
+
+Medir tarefas completas representativas, frias/quentes: tempo, CPU, pico de RAM
+da família de processos, disco, artefatos, tokens e dólares, incluindo falhas e
+correções. A fixture inerte anterior não estima malware real ou capacidade AWS.
+Mocks verificam contrato; usage de API real verifica custos; runtime Linux real
+verifica implantação. Nenhuma dessas validações novas foi executada neste plano.
+
+## 13. Pendências e próximo passo
+
+IA no piloto está decidida. Implementar com parâmetros propostos em staging e
+manter o serviço real desabilitado até verificar runtime, tetos, retenção do
+provedor, região e orçamento. Isso não impede adapter, API/fila, isolamento e
+testes locais. Não implementar ledger, renovação ou alterar Stripe nesta fase.
+Ativação exige acesso AWS, identidade do servidor, chave de API faturável e
+credencial de integração, sem compartilhar segredos em Git.
+
+A interface restrita ao proprietário foi integrada à `main`, mas não houve
+provisionamento, deploy do site ou chamada de IA de análise. Próxima entrega:
+**resultado da fixture inerte na tela existente**, seguida de Linux, serviço
+e IA limitada. O guia de continuidade vinculado no início organiza a execução
+no outro computador e deve ser atualizado após cada marco verificado. O plano
+não confirma que o servidor já esteja pronto para receber uploads.
