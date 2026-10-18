@@ -1,0 +1,14 @@
+[Unit]
+Description=MachSentry worker watchdog (session length, job deadlines, supervisor heartbeat)
+Documentation=https://github.com/h4wk0x01/machsentry/blob/main/deploy/worker/README.md
+After=docker.service
+ConditionPathExists=!/run/machsentry-worker-maintenance
+ConditionPathExists=/etc/machsentry-worker/release.json
+ConditionPathExists=/etc/machsentry-worker/config.json
+
+[Service]
+Type=oneshot
+ExecStart=/opt/machsentry-worker/venv/bin/python -m machsentry_worker.watchdog
+TimeoutStartSec=120
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+UMask=0077

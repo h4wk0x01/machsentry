@@ -1,0 +1,65 @@
+# Build context of deploy/worker/Dockerfile (the MachSentry analyzer image).
+# The build needs package.json, package-lock.json, .npmrc, .nvmrc, turbo.json,
+# tsconfig*.json, src/, scripts/, bridge/, macos_static/ (including tests/fixtures.py
+# for the verifier), .agents/skills/ (package and skill metadata), licenses/ and
+# native/. Samples, reports, local runtimes, generated outputs, documentation,
+# tests and credentials stay out.
+
+# Version control and CI
+.git
+.github
+.husky
+
+# Local samples, references and generated evidence (never in an image)
+amostras
+reports
+_reference
+experiments
+
+# Local runtimes and build outputs (setup recreates them inside the build)
+.tools
+.venv
+.venv-unpack
+.venv-macho
+venv
+env
+node_modules
+**/node_modules
+dist
+skills
+.cache
+.turbo
+**/.turbo
+**/__pycache__
+**/*.py[cod]
+
+# Test and coverage state
+tests
+coverage
+htmlcov
+.stryker-tmp
+.vitest
+.vitest-reports
+.pytest_cache
+test-results.xml
+test-timings.json
+
+# Not part of the analyzer runtime
+docs
+website
+deploy
+worker
+
+# Local tooling and credentials
+.claude
+.codex
+.devin
+.factory
+codedb.snapshot
+.idea
+.vscode
+**/.DS_Store
+**/.env
+**/.env.*
+**/.dev.vars*
+**/*.pem

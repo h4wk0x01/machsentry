@@ -1,0 +1,35 @@
+[Unit]
+Description=MachSentry analysis worker supervisor (Unpacked)
+Documentation=https://github.com/h4wk0x01/machsentry/blob/main/deploy/worker/README.md
+After=docker.service network-online.target
+Wants=docker.service network-online.target
+# bootstrap.sh creates this file (on tmpfs) while it replaces the release.
+ConditionPathExists=!/run/machsentry-worker-maintenance
+ConditionPathExists=/etc/machsentry-worker/release.json
+ConditionPathExists=/etc/machsentry-worker/config.json
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Skips this start while scripts/deploy_machsentry_aws.py holds the instance for
+# a bootstrap or a rollback (EC2 tag unpacked-analysis:maintenance, read through
+# IMDS), so the previous release claims no job before bootstrap.sh takes over.
+ExecCondition=/usr/bin/python3 -I /opt/machsentry-worker/bin/maintenance-gate.py
+ExecStart=/opt/machsentry-worker/venv/bin/python -m machsentry_worker.supervisor
+Restart=on-failure
+RestartSec=10
+# Room for the job deadline path: SIGINT, 30 s grace, docker rm -f.
+TimeoutStopSec=90
+WorkingDirectory=/var/lib/machsentry-worker
+RuntimeDirectory=machsentry-worker
+RuntimeDirectoryPreserve=yes
+RuntimeDirectoryMode=0750
+Environment=PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+UMask=0077
+# No PrivateTmp/ProtectSystem/PrivateMounts: the supervisor loop-mounts each
+# job's work image, and dockerd (outside this unit) must see that mount to
+# bind it into the analysis container.
+
+[Install]
+WantedBy=multi-user.target
