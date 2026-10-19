@@ -31,7 +31,7 @@ class CommandTests(unittest.TestCase):
                                        'LANG=C.UTF-8'])
         self.assertEqual(argv[argv.index('sha256:' + 'a' * 64):], [
             'sha256:' + 'a' * 64, 'python', '-m', 'machsentry', 'analyze', '/input/sample.macho', '--output',
-            '/work/out/report', '--rea-root', '/opt/machsentry', '--max-functions', '64', '--rea-timeout', '840'])
+            '/work/out/report', '--rea-root', '/opt/machsentry', '--max-functions', '64', '--rea-timeout', '840', '--report-brand', 'unpacked'])
         self.assertNotIn('docker.sock', joined)
         self.assertFalse(any(item.startswith(('AWS', 'OPENAI')) for item in environment))
 

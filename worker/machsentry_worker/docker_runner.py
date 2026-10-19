@@ -50,7 +50,7 @@ def analysis_command(name: str, job_id: str, attempt: int, image: str, input_fil
         argv += ['--env', f'{key}={value}']
     return argv + [image, 'python', '-m', 'machsentry', 'analyze', '/input/sample.macho',
                    '--output', '/work/out/report', '--rea-root', REA_ROOT, '--max-functions', str(max_functions),
-                   '--rea-timeout', str(REA_TIMEOUT_SECONDS)]
+                   '--rea-timeout', str(REA_TIMEOUT_SECONDS), '--report-brand', 'unpacked']
 
 
 def doctor_command(name: str, image: str) -> list[str]:

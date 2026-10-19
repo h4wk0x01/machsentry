@@ -186,21 +186,36 @@ def coverage(view):
                      empty('Nenhuma arquitetura foi avaliada.')) + listing(coverage['limitations'])
 
 
-def html_report(view):
+# Product names shown around the fixed sections. The engine and its evidence are
+# the same; only the header, title, footer and accent change.
+BRANDS = {
+    'machsentry': {'name': 'MachSentry', 'mark': 'Mach<span>Sentry</span>', 'tag': 'Análise estática · macOS',
+                   'footer': 'MachSentry · Modelo de relatório 1.0 · Análise estática', 'css': ''},
+    'unpacked': {'name': 'Unpacked', 'mark': 'UN<span>PACKED</span>', 'tag': 'Análise de arquivos · macOS',
+                 'footer': 'Unpacked · Análise estática feita com MachSentry (REA e Ghidra) · Modelo de relatório 1.0',
+                 'css': ':root{--accent:#6b3fc4}.brand span{color:#b991ff}'},
+}
+
+
+def html_report(view, brand='machsentry'):
     validate_view(view)
+    if brand not in BRANDS:
+        raise ValueError(f'unknown report brand: {brand}')
+    look = BRANDS[brand]
+    css = CSS + look['css']
     renderers = {'summary': summary, 'identity': identity, 'behaviors': behaviors, 'functions': functions,
                  'scripts': scripts, 'network': network, 'yara': detection, 'coverage': coverage}
     sections = ''.join('<section class="panel" id="' + key + '" data-section="' + key + '"><h2>' + title
                        + '</h2>' + renderers[key](view) + '</section>' for key, title in SECTIONS)
     navigation = ''.join('<a href="#' + key + '"><span>' + f'{index:02d}' + '</span>' + title + '</a>'
                          for index, (key, title) in enumerate(SECTIONS, 1))
-    css_hash = base64.b64encode(sha256(CSS.encode('utf-8')).digest()).decode('ascii')
+    css_hash = base64.b64encode(sha256(css.encode('utf-8')).digest()).decode('ascii')
     policy = "default-src 'none'; style-src 'sha256-" + css_hash + "'; base-uri 'none'; form-action 'none'; object-src 'none'"
     return ('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             + '<meta http-equiv="Content-Security-Policy" content="' + escape(policy, quote=True) + '">'
-            + '<title>MachSentry · ' + text(view['sample']['name']) + '</title><style>' + CSS + '</style></head><body>'
-            + '<header class="top"><div class="brand">Mach<span>Sentry</span></div><div class="tag">Análise estática · macOS</div></header>'
+            + '<title>' + look['name'] + ' · ' + text(view['sample']['name']) + '</title><style>' + css + '</style></head><body>'
+            + '<header class="top"><div class="brand">' + look['mark'] + '</div><div class="tag">' + look['tag'] + '</div></header>'
             + '<div class="layout"><nav aria-label="Seções do relatório"><p>Neste relatório</p>' + navigation + '</nav><main>'
             + '<div class="hero"><p class="eyebrow">Relatório de análise</p><h1>' + text(view['sample']['name']) + '</h1>'
             + '<p class="muted">Comportamentos, evidências e critérios de detecção em um único relatório.</p></div>' + sections
-            + '<footer class="footer">MachSentry · Modelo de relatório 1.0 · Análise estática</footer></main></div></body></html>\n')
+            + '<footer class="footer">' + look['footer'] + '</footer></main></div></body></html>\n')

@@ -1,6 +1,9 @@
 """Public exports, fixed dashboard contract and hostile sample-text rendering."""
 
+import base64
 from copy import deepcopy
+import hashlib
+from html import unescape
 from html.parser import HTMLParser
 import json
 from pathlib import Path
@@ -114,6 +117,28 @@ class AnalystReportTests(unittest.TestCase):
                 self.assertFalse((target / 'detection.yar').exists())
                 self.assertTrue((target / 'candidate-rejected.yar.txt').exists())
                 self.assertFalse(any(attrs.get('download') for _, attrs in Page(html_report(view)).tags))
+
+    def test_report_brand_changes_only_the_product_frame(self):
+        code, envelope = self.run_cli(self.positive, '--output', self.root / 'branded', '--json', '--report-brand', 'unpacked')
+        self.assertEqual(code, 0)
+        branded = (self.root / 'branded' / 'report.html').read_bytes().decode('utf-8')
+        view = json.loads((self.root / 'branded' / 'report-view.json').read_text(encoding='utf-8'))
+        default = html_report(view)
+        self.assertIn('<title>Unpacked · ', branded)
+        self.assertIn('UN<span>PACKED</span>', branded)
+        self.assertIn('Unpacked · Análise estática feita com MachSentry', branded)
+        self.assertNotIn('Mach<span>Sentry</span>', branded)
+        self.assertIn('Mach<span>Sentry</span>', default)
+        self.assertEqual(html_report(view, 'unpacked'), branded)
+        # The inline style stays allowed by the page's own CSP hash.
+        for page in (default, branded):
+            style = page.split('<style>', 1)[1].split('</style>', 1)[0]
+            digest = base64.b64encode(hashlib.sha256(style.encode('utf-8')).digest()).decode('ascii')
+            self.assertIn("style-src 'sha256-" + digest + "'", unescape(page))
+        sections = lambda page: [attrs.get('data-section') for _, attrs in Page(page).tags if attrs.get('data-section')]
+        self.assertEqual(sections(default), sections(branded))
+        with self.assertRaises(ValueError):
+            html_report(view, 'other')
 
     def test_selection_explanations_are_bound_to_emitted_string_symbols(self):
         code, envelope = self.run_cli(self.positive, '--output', self.root / 'selection', '--json')
