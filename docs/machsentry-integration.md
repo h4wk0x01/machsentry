@@ -1,8 +1,28 @@
 # Plano de integração MachSentry + Unpacked
 
-Criado em 17/10/2026, atualizado em 18/10/2026. Estado: plano de implementação;
-serviço AWS ainda não implantado. Para executar em outro computador, começar
-pelo [guia de continuidade do Unpacked](https://github.com/h4wk0x01/unpacked/blob/main/docs/ANALYSIS-CODEX-HANDOFF.md).
+Criado em 17/10/2026, atualizado em 18/10/2026. Estado: implementado e
+implantado na AWS do Unpacked (ver a atualização abaixo); aceite pelo dashboard
+pendente. Para continuar, começar pelo
+[guia de continuidade do Unpacked](https://github.com/h4wk0x01/unpacked/blob/main/docs/ANALYSIS-CODEX-HANDOFF.md).
+
+### Implementação — 18/10/2026
+
+- Setup Linux x86_64 em `scripts/machsentry_setup.py`: JDK Temurin 21.0.12.1+1 e
+  Node 24.18.0 Linux com SHA-256 oficiais no lock, decompilador `linux_x86_64` do
+  zip do Ghidra 12.1.4, verificação de `procps`, CPython 3.12 e dependências
+  Python por `scripts/machsentry-python-linux.lock.txt` com hashes.
+- Worker em `worker/machsentry_worker/`: supervisor, contêiner de análise sem
+  rede e sem credenciais, estágio de IA com reserva de orçamento no site, publicação
+  com SHA-256 e watchdog. Protocolo em
+  [ANALYSIS-SERVICE-CONTRACT.md](https://github.com/h4wk0x01/unpacked/blob/main/docs/ANALYSIS-SERVICE-CONTRACT.md).
+- Automação em `deploy/worker/` (Dockerfile, bootstrap, systemd),
+  `deploy/aws/worker.yaml` e `scripts/deploy_machsentry_aws.py`.
+- Primeiro bootstrap na EC2 `t3a.medium` (us-east-2): 587 s; doctor saudável;
+  verificador real em 105 s, 181 s de CPU e pico de 1,14 GiB da família de
+  processos, no isolamento de um job. Imagem
+  `sha256:d51bc5cdf171114817a52940c954e4b0a4f326e6f2132726fc167e433cae4eee`.
+- As tabelas das seções 2, 7 e 11 abaixo registram o plano de 17/10; onde dizem
+  "falta" ou "ainda não existem", valem as linhas acima.
 
 ### Atualização de escopo — 18/10/2026
 
