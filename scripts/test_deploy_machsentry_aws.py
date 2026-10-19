@@ -35,6 +35,22 @@ COMMIT = "a" * 40
 DIGEST = "b" * 64
 
 
+def script_bash() -> str | None:
+    """A bash that reads this checkout's paths. On Windows, `bash` on PATH is usually the WSL launcher
+    (System32 or WindowsApps), which runs inside Linux or fails without a distribution; Git Bash is the
+    one that understands Windows paths."""
+    if os.name != "nt":
+        return shutil.which("bash")
+    for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432"), r"C:\Program Files"):
+        candidate = Path(root) / "Git" / "bin" / "bash.exe" if root else None
+        if candidate is not None and candidate.is_file():
+            return str(candidate)
+    return None
+
+
+BASH = script_bash()
+
+
 class AwsError(Exception):
     """Same shape as botocore's ClientError for error_code()."""
 
@@ -497,7 +513,7 @@ class DeployScriptTests(unittest.TestCase):
         self.assertNotIn("systemctl stop", script)
         self.assertNotRegex(script, r"(?i)aws_secret|aws_access_key|secret_access")
         self.assertIn('"peakMemoryBytes": 2147483648', out)
-        completed = subprocess.run(["bash", "-n"], input=script, text=True, capture_output=True) if shutil.which("bash") else None
+        completed = subprocess.run([BASH, "-n"], input=script, text=True, capture_output=True) if BASH else None
         if completed is not None:
             self.assertEqual(completed.returncode, 0, completed.stderr)
 
@@ -896,9 +912,10 @@ class WorkerFilesTests(unittest.TestCase):
     def read(self, name: str) -> str:
         return (ROOT / name).read_text(encoding="utf-8")
 
-    @unittest.skipUnless(shutil.which("bash"), "bash is not installed")
+    @unittest.skipUnless(BASH, "no bash that reads this checkout's paths")
     def test_bootstrap_script_parses(self):
-        completed = subprocess.run(["bash", "-n", str(ROOT / "deploy/worker/bootstrap.sh")], capture_output=True, text=True)
+        completed = subprocess.run([BASH, "-n", (ROOT / "deploy/worker/bootstrap.sh").as_posix()], capture_output=True,
+                                   text=True)
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_verification_container_uses_the_job_isolation_of_contract_section_9(self):
