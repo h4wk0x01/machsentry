@@ -13,9 +13,10 @@ the clone to another machine.
 The current pilot is only for authenticated `gabrielgpaiva@outlook.com`.
 Pro shows 7 reference credits; commercial billing/renewal/purchases are deferred.
 AI is required with measured usage and hard job/global budgets. The UI is
-merged into Unpacked main, but API, persistent queue, Linux setup/worker, AI
-integration and AWS automation remain pending. Implement and verify them before
-claiming EC2 can receive analyses. Keep REA/MCP/Ghidra as the static analysis
+merged into Unpacked main. The API, queue, Linux setup, worker (`worker/`), AI
+stage and AWS automation (`deploy/`, `scripts/deploy_machsentry_aws.py`) were
+implemented and deployed on 2026-10-18; check the handoff for what the owner's
+acceptance has verified before claiming the service works end to end. Keep REA/MCP/Ghidra as the static analysis
 engine. Provision/deploy when requested by the user, with their actual AWS
 account, region and budget; a clone or this instruction alone triggers nothing.
 Update the handoff with verified progress and operational steps, without secrets.

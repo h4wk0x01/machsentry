@@ -29,3 +29,28 @@ ul{padding-left:20px}li{margin-bottom:8px}.small{font-size:12px}.footer{font-siz
 @media(max-width:480px){.summary-grid{display:block}.score{border-right:0;border-bottom:1px solid var(--line);padding:0 0 18px;margin-bottom:18px}.score strong{font-size:42px}.stats{grid-template-columns:1fr}.card-head{display:block}dl{grid-template-columns:1fr;gap:3px}dd{margin-bottom:12px}}
 @media print{body{background:white;font-size:11px}.top{background:white;color:var(--ink);padding:0 0 16px;border-bottom:2px solid var(--ink)}.top .brand span{color:var(--ink)}.layout{display:block;margin:22px 0;padding:0}nav,.button{display:none}.panel{padding:18px 0;border:0;border-top:1px solid var(--line);border-radius:0;break-inside:auto}h2,h3{break-after:avoid}pre,.rule{max-height:none;overflow:visible;background:#f4f5f6;color:#182b3e}.card,.evidence{break-inside:avoid}a{color:inherit}details:not([open])> :not(summary){display:block}.footer{margin-top:20px}}
 '''
+
+# Unpacked frame: neutral, print-friendly document with the brand purple in the header and accents.
+UNPACKED_CSS = '''
+:root{--ink:#161824;--muted:#5d6377;--line:#e4e5ee;--paper:#fff;--bg:#f5f5f9;--accent:#6a3fd2;--accent-soft:#f3effd}
+body{font-feature-settings:"tnum" 1}a:focus-visible,summary:focus-visible{outline-color:#8b5cf6}
+.top{background:linear-gradient(115deg,#0a0c12 0%,#120f1d 62%,#1b1230 100%);color:#ecebf6;padding:18px max(24px,calc((100vw - 1220px)/2));border-bottom:1px solid #2b2243}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;font-size:22px;font-weight:850;letter-spacing:-.03em;line-height:1}
+.brand svg{flex:none;width:30px;height:30px;filter:drop-shadow(0 0 9px rgba(162,65,255,.65))}.brand span{color:inherit}
+.tag{color:#c7bdec;text-align:right;line-height:1.7}.tag b{display:block;color:#fff;font-weight:650;letter-spacing:.4px}
+nav a:hover,nav a:focus-visible{color:var(--accent)}nav a span{color:#9a8fc0}
+.hero{border-bottom:1px solid var(--line);padding-bottom:20px}.eyebrow{color:var(--accent)}
+.panel{border-color:var(--line);box-shadow:0 1px 2px rgba(22,24,36,.04)}.panel h2{display:flex;align-items:center;gap:10px}
+.panel h2::before{content:"";width:4px;height:18px;border-radius:2px;background:linear-gradient(#a855f7,#6a3fd2)}
+.pill{border-color:#d9ccfb;background:var(--accent-soft);color:var(--accent)}
+.factor{background:#f2f0f8;color:#4b4565}.evidence{border-left-color:#c7b5f6;background:#faf8ff}
+pre{background:#f6f6fa;border-color:#e6e4f0}.rule{background:#13101f;color:#ece6ff}
+.stat{background:#f4f2fa}.empty{background:#f7f6fb}.button{background:var(--accent)}
+meter::-webkit-meter-optimum-value{background:linear-gradient(90deg,#a855f7,#6a3fd2)}
+.footer{display:flex;flex-wrap:wrap;align-items:center;gap:8px;border-top:1px solid var(--line);padding-top:16px}
+.footer strong{color:var(--ink);font-weight:850;letter-spacing:-.02em}
+@media(max-width:850px){.top{padding:16px}.brand{font-size:19px}.brand svg{width:26px;height:26px}}
+@media print{.top{background:#fff;color:var(--ink);border-bottom:2px solid var(--ink)}.brand{color:var(--ink)}.brand svg{filter:none}
+.tag{display:block;color:var(--muted)}.tag b{color:var(--ink)}.hero{border-bottom:0;padding-bottom:0}
+.panel h2::before{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+'''

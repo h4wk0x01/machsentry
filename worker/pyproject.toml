@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "machsentry-worker"
+version = "0.1.0"
+description = "EC2 supervisor that runs MachSentry jobs for the Unpacked analysis pilot"
+requires-python = ">=3.12"
+license = "MIT"
+# Transitive pins and hashes live in requirements.lock.txt.
+dependencies = ["boto3==1.43.104"]
+
+[project.urls]
+Repository = "https://github.com/h4wk0x01/machsentry"
+
+[tool.setuptools.packages.find]
+include = ["machsentry_worker*"]

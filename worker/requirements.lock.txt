@@ -1,0 +1,19 @@
+# Hashed dependencies of machsentry_worker on the EC2 host (CPython 3.12, Linux x86_64).
+# Install into the supervisor venv with
+#   pip install --require-hashes --only-binary=:all: -r worker/requirements.lock.txt
+#   pip install --no-deps --no-build-isolation ./worker
+# setuptools is the build backend for that install (same pin as scripts/machsentry-python-linux.lock.txt);
+# every other line is a runtime dependency. Only SSM parameter reads need boto3; everything else
+# is the standard library. Resolved from boto3==1.43.104 (released 2026-09-28) with pip download
+# --only-binary=:all: --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64
+# --python-version 3.12 --implementation cp --abi cp312, botocore pinned to the matching release.
+# Each hash is the one PyPI publishes for the selected wheel (checked with pip hash).
+# Regenerate when the boto3 pin in worker/pyproject.toml changes.
+boto3==1.43.104 --hash=sha256:dc0c4b5c217fa38792d6b2e3c89b0d26220fd938dc173e48adab45d2d05e6977
+botocore==1.43.104 --hash=sha256:a447978a815f8ac7ef2f4ba103b6a0c310e56536386974df769edb1326f3b208
+jmespath==1.1.0 --hash=sha256:a5663118de4908c91729bea0acadca56526eb2698e83de10cd116ae0f4e97c64
+python-dateutil==2.9.0.post0 --hash=sha256:a8b2bc7bffae282281c8140a97d3aa9c14da0b136dfe83f850eea9a5f7470427
+s3transfer==0.19.2 --hash=sha256:d8168eccca828cbb2cd573675333f3bddd254313a9c42494b84c76b539e8ba25
+setuptools==84.0.0 --hash=sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670
+six==1.17.0 --hash=sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274
+urllib3==2.8.0 --hash=sha256:0cf3cae568d36aa9576b28dfb35f11328f1cb974ca7647d9475ebb86c75ac6e3

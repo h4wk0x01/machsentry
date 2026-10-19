@@ -51,6 +51,19 @@
         "sha256": "dfd0dbd3e721503434df7b7205e719f61b3a3a31b2bcf9729b8b91fea240f080"
       },
       "decompiler_platform": "mac_x86_64"
+    },
+    "linux-x64": {
+      "jdk": {
+        "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_x64_linux_hotspot_21.0.12.1_1.tar.gz",
+        "sha256": "ce79869e1307ed8ee1e2baa86a412b1eb5b75d10a01006d788a6f968bcfaee94",
+        "size": 207473347
+      },
+      "node": {
+        "url": "https://nodejs.org/dist/v24.18.0/node-v24.18.0-linux-x64.tar.gz",
+        "sha256": "783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8",
+        "size": 57224421
+      },
+      "decompiler_platform": "linux_x86_64"
     }
   },
   "windows_addon": {

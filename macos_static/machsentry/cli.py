@@ -24,7 +24,7 @@ def _write(path: Path, text: str):
         output.write(text)
 
 
-def publish(report: dict, data: bytes, output: Path) -> dict:
+def publish(report: dict, data: bytes, output: Path, brand: str = 'machsentry') -> dict:
     try:
         output.mkdir(parents=True, exist_ok=False)
         assembly, truncated = function_assembly(data, report)
@@ -44,7 +44,7 @@ def publish(report: dict, data: bytes, output: Path) -> dict:
         for index, script in enumerate(report['scripts']):
             exports[f'script-{index:03d}.txt'] = script['content']
         view = analyst_view(report)
-        exports['report.html'] = html_report(view)
+        exports['report.html'] = html_report(view, brand)
         exports['report-view.json'] = json.dumps(view, ensure_ascii=False, indent=2) + '\n'
         exports['report-view.schema.json'] = json.dumps(SCHEMA, ensure_ascii=False, indent=2) + '\n'
         report['presentation'] = {'schema_version': '1.0', 'html': 'report.html', 'data': 'report-view.json',
@@ -84,6 +84,8 @@ def main(argv=None) -> int:
     command.add_argument('--architecture', choices=('x86_64', 'arm64', 'x86', 'arm'), help='Analyze only this exact REA-reported slice')
     command.add_argument('--max-functions', type=int, default=64, help='Per-slice decompiler work budget; omitted functions stay unknown')
     command.add_argument('--rea-timeout', type=float, default=900, help='Seconds per REA request including initial Ghidra import')
+    command.add_argument('--report-brand', choices=('machsentry', 'unpacked'), default='machsentry',
+                         help='Product name in the HTML report header, title and footer; the analysis is unchanged')
     args = parser.parse_args(argv)
     started, cpu_started = time.perf_counter(), time.process_time()
     try:
@@ -108,7 +110,7 @@ def main(argv=None) -> int:
             "worker_cpu_before_publication_seconds": round(time.process_time() - cpu_started, 6),
             "python_peak_memory_bytes": peak_memory_bytes(),
             "runtime_llm_tokens": 0})
-        outputs = publish(report, source.data, args.output)
+        outputs = publish(report, source.data, args.output, args.report_brand)
         if report['analysis_status'] == 'failed':
             print(json.dumps({'ok': False, 'error': report.get('error', {'code': 'rea_analysis_failed',
                 'message': 'REA/Ghidra analysis or owned cleanup failed; retained evidence is in the report'}),

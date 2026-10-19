@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the MachSentry worker watchdog every 60 s
+Documentation=https://github.com/h4wk0x01/machsentry/blob/main/deploy/worker/README.md
+
+[Timer]
+OnBootSec=60s
+# Calendar-based, so a run skipped by a unit condition (maintenance) does not
+# stop later runs from being scheduled.
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=false
+Unit=machsentry-watchdog.service
+
+[Install]
+WantedBy=timers.target

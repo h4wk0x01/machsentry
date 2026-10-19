@@ -25,6 +25,12 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 TOOLS = ROOT / ".tools"
 LOCK_PATH = Path(__file__).with_name("machsentry-runtime.lock.json")
+PYTHON_LINUX_LOCK = Path(__file__).with_name("machsentry-python-linux.lock.txt")
+SUPPORTED_HOSTS = ("win32-x64", "darwin-x64", "darwin-arm64", "linux-x64")
+# REA lists processes with exactly these columns before every provider child; its doctor does not check it.
+PROCESS_LISTING = ("ps", "-axo", "pid=,ppid=,pgid=,uid=,stat=,command=")
+# CI runners and JDK images export their own JAVA_HOME; on Linux the pinned runtimes always win.
+LINUX_PINNED_ENVIRONMENT = ("JAVA_HOME", "GHIDRA_INSTALL_DIR")
 
 
 def host_key() -> str:
@@ -34,9 +40,19 @@ def host_key() -> str:
         if probe.returncode == 0 and probe.stdout.strip() == "1":
             raise RuntimeError("Run setup with a native arm64 Python, outside Rosetta.")
     key = f"{sys.platform}-{architecture}"
-    if key not in {"win32-x64", "darwin-x64", "darwin-arm64"}:
+    if key not in SUPPORTED_HOSTS:
         raise RuntimeError(f"Managed setup does not support {key}; configure REA runtimes manually.")
     return key
+
+
+def linux_preflight() -> None:
+    if sys.implementation.name != "cpython" or sys.version_info[:2] != (3, 12):
+        raise RuntimeError(f"{PYTHON_LINUX_LOCK.name} pins CPython 3.12 wheels; run setup with python3.12.")
+    executable = shutil.which(PROCESS_LISTING[0])
+    listing = subprocess.run([executable, *PROCESS_LISTING[1:]], capture_output=True, text=True, errors="replace") if executable else None
+    pids = {line.split()[0] for line in listing.stdout.splitlines() if line.strip()} if listing and listing.returncode == 0 else set()
+    if str(os.getpid()) not in pids:
+        raise RuntimeError(f"REA identifies its Ghidra processes with `{shlex.join(PROCESS_LISTING)}`, which must list this process. Install procps (apt-get install procps), then rerun setup.")
 
 
 def digest_file(path: Path, algorithm: str) -> str:
@@ -138,6 +154,12 @@ def unique_file(root: Path, pattern: str) -> Path:
     return paths[0]
 
 
+def java_pattern(host: str) -> str:
+    if host.startswith("win32"):
+        return "*/bin/java.exe"
+    return "*/Contents/Home/bin/java" if host.startswith("darwin") else "*/bin/java"
+
+
 def native_decompiler(ghidra: Path, host: str, folder: str) -> None:
     filename = "decompile.exe" if host.startswith("win32") else "decompile"
     feature = ghidra / "Ghidra/Features/Decompiler"
@@ -197,8 +219,12 @@ def setup_lock(tools: Path):
 
 def runtime_environment(config: dict) -> dict:
     environment = dict(os.environ)
+    pinned = LINUX_PINNED_ENVIRONMENT if config["host"]["platform"] == "linux" else ()
     for key, value in config["environment"].items():
-        environment.setdefault(key, value)
+        if key in pinned:
+            environment[key] = value
+        else:
+            environment.setdefault(key, value)
     environment.setdefault("GHIDRA_HEADLESS_MAXMEM", "512M")
     environment["PATH"] = os.pathsep.join([str(TOOLS / "bin"), str(Path(config["executables"]["node"]).parent), str(Path(environment["JAVA_HOME"]) / "bin"), environment.get("PATH", "")])
     return environment
@@ -253,7 +279,7 @@ def install_runtimes(lock: dict, host: str) -> dict:
     node_root = install_asset(selected["node"], f"node-{host}-" + lock["versions"]["node"])
     npm_root = install_asset(lock["npm"], "npm-" + lock["versions"]["npm"])
     ghidra = unique_file(ghidra_root, "*/Ghidra/application.properties").parent.parent
-    java = unique_file(jdk_root, "*/bin/java.exe" if host.startswith("win32") else "*/Contents/Home/bin/java")
+    java = unique_file(jdk_root, java_pattern(host))
     node = unique_file(node_root, "*/node.exe" if host.startswith("win32") else "*/bin/node")
     npm = unique_file(npm_root, "package/bin/npm-cli.js")
     native_decompiler(ghidra, host, selected["decompiler_platform"])
@@ -279,7 +305,13 @@ def install_project(config: dict) -> None:
     python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not python.is_file():
         subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True)
-    subprocess.run([str(python), "-m", "pip", "install", "-e", str(ROOT / "macos_static")], cwd=ROOT, check=True)
+    pip = [str(python), "-m", "pip"]
+    if config["host"]["platform"] == "linux":
+        subprocess.run([*pip, "install", "--require-hashes", "--only-binary=:all:", "--no-deps", "-r", str(PYTHON_LINUX_LOCK)], cwd=ROOT, check=True)
+        subprocess.run([*pip, "install", "--no-deps", "--no-build-isolation", "-e", str(ROOT / "macos_static")], cwd=ROOT, check=True)
+        subprocess.run([*pip, "check"], cwd=ROOT, check=True)
+    else:
+        subprocess.run([*pip, "install", "-e", str(ROOT / "macos_static")], cwd=ROOT, check=True)
     diagnosis = subprocess.run([node, str(ROOT / "scripts/rea.mjs"), "doctor", "--provider", "ghidra", "--json"], cwd=ROOT, env=environment, capture_output=True, text=True, encoding="utf-8")
     try:
         report = json.loads(diagnosis.stdout)
@@ -305,6 +337,8 @@ def main() -> int:
     if args.dry_run:
         print(json.dumps({"versions": lock["versions"], "ghidra": lock["ghidra"], "npm": lock["npm"], "platform": lock["platforms"][host], "build_project": not args.runtimes_only}, indent=2))
         return 0
+    if host.startswith("linux") and not args.runtimes_only:
+        linux_preflight()
     with setup_lock(TOOLS):
         config = install_runtimes(lock, host)
         if not args.runtimes_only:

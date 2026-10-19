@@ -154,8 +154,8 @@ No macOS, use `.venv-unpack/bin/python`. Os testes determinísticos cobrem os
 limites de entrada, contratos MCP simulados, retenção de Evidence, identidade,
 falhas, fechamento, publicação, score e YARA. Eles não estabelecem funcionamento
 do Ghidra real. Consulte [a validação](../docs/machsentry-validation.md) para os
-ensaios reais e [a integração](../docs/machsentry-integration.md) para o futuro
-worker do Unpacked. API, fila e créditos ainda não foram implantados.
+ensaios reais e [a integração](../docs/machsentry-integration.md) para o worker
+do Unpacked (`worker/` e `deploy/`). O setup cobre Windows, macOS e Linux x86_64.
 
 REA mantém sua licença/atribuição MIT. Ghidra, o JDK, o SDK MCP, Capstone e YARA
 mantêm suas respectivas licenças. Amostras, relatórios, bancos e runtimes locais

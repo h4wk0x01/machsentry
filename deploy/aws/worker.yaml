@@ -1,0 +1,388 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Unpacked private Mach-O analysis pilot: private S3 bucket, site and worker
+  roles, the on-demand MachSentry worker instance (no inbound rules), its idle
+  stop alarm and an optional account-wide cost budget. Stack name
+  unpacked-analysis; managed by scripts/deploy_machsentry_aws.py.
+
+Parameters:
+  SiteOrigin:
+    Type: String
+    Default: https://www.unpackedlab.com
+    AllowedPattern: "^https://[a-z0-9.-]+(:[0-9]+)?$"
+    Description: Only origin allowed to POST uploads to the bucket (CORS).
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC of the worker (the deploy script picks the default VPC).
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public subnet of the worker; it needs a public IPv4 to reach the site, S3 and SSM.
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: >-
+      Canonical Ubuntu 24.04 amd64 hvm-ssd-gp3 AMI, resolved by the deploy script from
+      /aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id
+      and kept between updates. Changing it replaces the worker instance.
+  InstanceType:
+    Type: String
+    Default: t3a.medium
+    AllowedValues: [t3a.medium, t3.medium, t3a.large, t3.large]
+  VolumeSize:
+    Type: Number
+    Default: 20
+    MinValue: 16
+    MaxValue: 100
+    Description: Root gp3 volume in GiB, billed while the worker is stopped.
+  BucketName:
+    Type: String
+    Default: unpacked-analysis-835176962667-us-east-2
+    AllowedPattern: "^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"
+  BudgetLimitUsd:
+    Type: Number
+    Default: 72
+    MinValue: 1
+    Description: >-
+      Monthly cost budget for the whole account, in USD. Default: the Unpacked
+      ceiling (R$ 200 at R$ 5.60/US$, about 36) plus the other projects in the
+      account (about 33 with tax in October 2026), plus a small margin.
+  BudgetEmail:
+    Type: String
+    Default: ""
+    Description: Address that receives the budget alerts (required when CreateBudget is true).
+  CreateBudget:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+
+Rules:
+  BudgetNeedsEmail:
+    RuleCondition: !Equals [!Ref CreateBudget, "true"]
+    Assertions:
+      - Assert: !Not [!Equals [!Ref BudgetEmail, ""]]
+        AssertDescription: BudgetEmail is required when CreateBudget is true.
+
+Conditions:
+  WithBudget: !Equals [!Ref CreateBudget, "true"]
+
+Resources:
+  AnalysisBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      # Backstops only: the site deletes samples and purges results itself.
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-uploads
+            Status: Enabled
+            Prefix: uploads/
+            ExpirationInDays: 1
+          - Id: expire-sealed-samples
+            Status: Enabled
+            Prefix: sealed/
+            ExpirationInDays: 1
+          - Id: expire-results
+            Status: Enabled
+            Prefix: results/
+            ExpirationInDays: 31
+          - Id: abort-incomplete-multipart
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      CorsConfiguration:
+        CorsRules:
+          - Id: site-upload
+            AllowedMethods: [POST]
+            AllowedOrigins: [!Ref SiteOrigin]
+            AllowedHeaders: ["*"]
+            MaxAge: 600
+      Tags:
+        - Key: Project
+          Value: unpacked-analysis
+
+  AnalysisBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref AnalysisBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt AnalysisBucket.Arn
+              - !Sub "${AnalysisBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+
+  SiteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unpacked-site-analysis
+      Description: Unpacked site instance access to the analysis bucket and the worker instance.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: unpacked-site-analysis
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AnalysisObjects
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${AnalysisBucket.Arn}/uploads/*"
+                  - !Sub "${AnalysisBucket.Arn}/sealed/*"
+                  - !Sub "${AnalysisBucket.Arn}/results/*"
+              - Sid: AnalysisListing
+                Effect: Allow
+                Action: s3:ListBucket
+                Resource: !GetAtt AnalysisBucket.Arn
+                Condition:
+                  StringLike:
+                    s3:prefix:
+                      - uploads/*
+                      - sealed/*
+                      - results/*
+              - Sid: WorkerPower
+                Effect: Allow
+                Action:
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${WorkerInstance}"
+              - Sid: WorkerState
+                Effect: Allow
+                Action: ec2:DescribeInstances
+                Resource: "*"
+      Tags:
+        - Key: Project
+          Value: unpacked-analysis
+
+  SiteInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: unpacked-site-analysis
+      Roles:
+        - !Ref SiteRole
+
+  WorkerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: unpacked-analysis-worker
+      Description: MachSentry worker instance; samples arrive only through URLs the site grants per job.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      Policies:
+        - PolicyName: unpacked-analysis-worker
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: WorkerParameters
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/unpacked/analysis/worker/*"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/unpacked/analysis/openai/*"
+              # AmazonSSMManagedInstanceCore allows ssm:GetParameter(s) on every
+              # parameter; this keeps the worker inside its two prefixes.
+              - Sid: OnlyWorkerParameters
+                Effect: Deny
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                  - ssm:GetParameterHistory
+                NotResource:
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/unpacked/analysis/worker/*"
+                  - !Sub "arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/unpacked/analysis/openai/*"
+              - Sid: Releases
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub "${AnalysisBucket.Arn}/releases/*"
+      Tags:
+        - Key: Project
+          Value: unpacked-analysis
+
+  WorkerInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: unpacked-analysis-worker
+      Roles:
+        - !Ref WorkerRole
+
+  WorkerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: unpacked-analysis-worker
+      GroupDescription: MachSentry worker, no inbound rules; HTTPS to the site, S3, SSM and the AI API, HTTP for apt
+      VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - Description: HTTPS
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - Description: HTTP for the Ubuntu archive
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: unpacked-analysis-worker
+        - Key: Project
+          Value: unpacked-analysis
+
+  WorkerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AmiId
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref WorkerInstanceProfile
+      InstanceInitiatedShutdownBehavior: stop
+      CreditSpecification:
+        CPUCredits: standard
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+        HttpPutResponseHopLimit: 1
+        # The supervisor unit reads the deploy script's maintenance tag at boot
+        # (deploy/worker/maintenance-gate.py). Tags carry no secrets; updating
+        # this property needs no interruption.
+        InstanceMetadataTags: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeType: gp3
+            VolumeSize: !Ref VolumeSize
+            Encrypted: true
+            DeleteOnTermination: true
+      NetworkInterfaces:
+        - DeviceIndex: "0"
+          SubnetId: !Ref SubnetId
+          GroupSet:
+            - !Ref WorkerSecurityGroup
+          AssociatePublicIpAddress: true
+          DeleteOnTermination: true
+      PropagateTagsToVolumeOnCreation: true
+      # No secrets here. scripts/deploy_machsentry_aws.py bootstrap installs the
+      # release through SSM; this only records that it has not happened yet.
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          install -d -m 0750 /var/lib/machsentry-worker
+          date -u +%Y-%m-%dT%H:%M:%SZ > /var/lib/machsentry-worker/bootstrap-pending
+      Tags:
+        - Key: Name
+          Value: unpacked-analysis-worker
+        - Key: Project
+          Value: unpacked-analysis
+
+  WorkerIdleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: unpacked-analysis-worker-idle
+      AlarmDescription: >-
+        Stops the MachSentry worker after 15 minutes below 2 % CPU. Independent of
+        the supervisor, the watchdog and the site reconciler.
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref WorkerInstance
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      Threshold: 2
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: missing
+      AlarmActions:
+        - !Sub "arn:${AWS::Partition}:automate:${AWS::Region}:ec2:stop"
+      Tags:
+        - Key: Project
+          Value: unpacked-analysis
+
+  AccountBudget:
+    Type: AWS::Budgets::Budget
+    Condition: WithBudget
+    Properties:
+      Budget:
+        BudgetName: unpacked-account-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: !Ref BudgetLimitUsd
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 90
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: !Ref BudgetEmail
+      ResourceTags:
+        - Key: Project
+          Value: unpacked-analysis
+
+Outputs:
+  BucketName:
+    Value: !Ref AnalysisBucket
+  WorkerInstanceId:
+    Value: !Ref WorkerInstance
+  SiteInstanceProfileName:
+    Value: !Ref SiteInstanceProfile
+  SiteRoleArn:
+    Value: !GetAtt SiteRole.Arn
+  WorkerRoleArn:
+    Value: !GetAtt WorkerRole.Arn
+  WorkerSecurityGroupId:
+    Value: !GetAtt WorkerSecurityGroup.GroupId
