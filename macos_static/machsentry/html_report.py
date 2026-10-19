@@ -6,7 +6,7 @@ from html import escape
 
 from .analyst_view import SECTIONS
 from .report_schema import validate_view
-from .report_style import CSS
+from .report_style import CSS, UNPACKED_CSS
 
 
 def text(value):
@@ -186,14 +186,29 @@ def coverage(view):
                      empty('Nenhuma arquitetura foi avaliada.')) + listing(coverage['limitations'])
 
 
+# The Unpacked mark as in the unpackedlab.com header: the biohazard glyph in the brand purple,
+# beside the UNPACKED wordmark. Inline SVG needs no network and passes the page CSP.
+UNPACKED_LOGO = (
+    '<svg viewBox="0 0 24 24" role="img" aria-label="Unpacked" xmlns="http://www.w3.org/2000/svg" fill="none" '
+    'stroke="#BA71FF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">'
+    '<circle cx="12" cy="11.9" r="2"/><path d="M6.7 3.4c-.9 2.5 0 5.2 2.2 6.7C6.5 9 3.7 9.6 2 11.6"/>'
+    '<path d="m8.9 10.1 1.4.8"/><path d="M17.3 3.4c.9 2.5 0 5.2-2.2 6.7 2.4-1.2 5.2-.6 6.9 1.5"/>'
+    '<path d="m15.1 10.1-1.4.8"/><path d="M16.7 20.8c-2.6-.4-4.6-2.6-4.7-5.3-.2 2.6-2.1 4.8-4.7 5.2"/>'
+    '<path d="M12 13.9v1.6"/><path d="M13.5 5.4c-1-.2-2-.2-3 0"/><path d="M17 16.4c.7-.7 1.2-1.6 1.5-2.5"/>'
+    '<path d="M5.5 13.9c.3.9.8 1.8 1.5 2.5"/></svg>'
+)
+
 # Product names shown around the fixed sections. The engine and its evidence are
-# the same; only the header, title, footer and accent change.
+# the same; only the header, title, footer and styling change.
 BRANDS = {
     'machsentry': {'name': 'MachSentry', 'mark': 'Mach<span>Sentry</span>', 'tag': 'Análise estática · macOS',
                    'footer': 'MachSentry · Modelo de relatório 1.0 · Análise estática', 'css': ''},
-    'unpacked': {'name': 'Unpacked', 'mark': 'UN<span>PACKED</span>', 'tag': 'Análise de arquivos · macOS',
-                 'footer': 'Unpacked · Análise estática feita com MachSentry (REA e Ghidra) · Modelo de relatório 1.0',
-                 'css': ':root{--accent:#6b3fc4}.brand span{color:#b991ff}'},
+    'unpacked': {'name': 'Unpacked',
+                 'mark': UNPACKED_LOGO + '<span>UNPACKED</span>',
+                 'tag': '<b>Análise estática de Mach-O</b>macOS · unpackedlab.com',
+                 'footer': '<strong>UNPACKED</strong> · unpackedlab.com · Análise estática feita com MachSentry '
+                           '(REA e Ghidra) · Modelo de relatório 1.0',
+                 'css': UNPACKED_CSS},
 }
 
 
