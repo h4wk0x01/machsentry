@@ -273,7 +273,10 @@ def report(sha=None, status='partial', strings_per_finding=4, pseudocode_chars=2
              'strings_complete_over_provider_inventory': True, 'reference_budget_exhausted': False},
             {'slice': 1, 'functions_inspected': 4, 'functions_omitted': 0,
              'strings_complete_over_provider_inventory': True, 'reference_budget_exhausted': False}]},
-        'yara': {'status': 'positive_only', 'requested_mode': 'auto', 'effective_mode': 'hybrid'},
+        'yara': {'status': 'positive_only', 'requested_mode': 'auto', 'effective_mode': 'hybrid',
+                 'rule': 'rule machsentry_hybrid_test\n{\n    strings:\n        $b0 = "TEST DATA ONLY"\n'
+                         '    condition:\n        all of ($b*)\n}\n',
+                 'validation': {'compiled': True, 'sample_matched': True, 'negative_count': 0, 'negative_matches': 0}},
         'presentation': {'schema_version': '1.0'},
     }
 
@@ -327,7 +330,7 @@ def raw_claim(download_url='http://127.0.0.1:9/sealed', *, job_id='job_1', attem
             'deadlineAt': deadline.isoformat().replace('+00:00', 'Z'),
             'limits': {'staticSeconds': 900, 'aiSeconds': 180, 'finalizeSeconds': 120, 'maxFunctions': 64,
                        'memoryBytes': 3 * 1024 ** 3, 'pids': 256, 'diskBytes': 4 * 1024 ** 3},
-            'ai': {'model': MODEL, 'promptVersion': 'unpacked-analysis-ai-v1', 'maxCalls': 2,
+            'ai': {'model': MODEL, 'promptVersion': 'unpacked-analysis-ai-v2', 'maxCalls': 2,
                    'maxInputTokensPerCall': 40000, 'maxOutputTokensFirstCall': 6000, 'maxOutputTokensPerJob': 8000}}
 
 

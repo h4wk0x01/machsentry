@@ -4,7 +4,8 @@ import json
 import unittest
 
 import worker_support as support
-from machsentry_worker.evidence import PSEUDOCODE_CHARS, STRING_CHARS, function_keys, select
+from machsentry_worker.evidence import (PSEUDOCODE_CHARS, STRING_CHARS, YARA_RULE_CHARS, function_keys,
+                                        internal_terms, select)
 
 SAMPLE = {'name': 'synthetic.macho', 'sha256': 'a' * 64, 'size': 12345, 'architectures': ['x86_64', 'arm64']}
 
@@ -107,6 +108,54 @@ class EvidenceTests(unittest.TestCase):
         selection = select({'findings': 'nope', 'evidence': [1, 2], 'functions': [None]}, SAMPLE, 'pt-BR', 40000)
         self.assertEqual(json.loads(selection.text)['findings'], [])
 
+
+
+
+class YaraAndTermsTests(unittest.TestCase):
+    def test_the_yara_result_and_rule_reach_the_ai(self):
+        document = json.loads(select(support.report(), SAMPLE, 'pt-BR', 40000).text)
+        yara = document['yara']
+        self.assertEqual((yara['status'], yara['mode'], yara['sample_matched']), ('positive_only', 'hybrid', True))
+        self.assertEqual((yara['clean_files_tested'], yara['clean_files_matched']), (0, 0))
+        self.assertIn('rule machsentry_hybrid_test', yara['rule'])
+        self.assertFalse(yara['rule_truncated'])
+
+    def test_a_long_rule_is_clipped_and_dropped_before_the_budget_breaks(self):
+        report = support.report()
+        report['yara']['rule'] = 'rule r { strings: $a = "TEST" condition: $a }' + ' ' * 5000
+        document = json.loads(select(report, SAMPLE, 'pt-BR', 40000).text)
+        self.assertEqual(len(document['yara']['rule']), YARA_RULE_CHARS)
+        self.assertTrue(document['yara']['rule_truncated'])
+        tight = select(support.report(strings_per_finding=12, pseudocode_chars=6000), SAMPLE, 'pt-BR', 9000)
+        if tight is not None:
+            self.assertLessEqual(len(tight.text.encode()), 9000)
+
+    def test_internal_terms_cover_keys_and_engine_values_but_not_sample_content(self):
+        document = json.loads(select(support.report(), SAMPLE, 'pt-BR', 40000).text)
+        terms = internal_terms(document)
+        for term in ('positive_only', 'high_risk_indicators', 'unconfirmed', 'partial', 'analyzed', 'not_performed',
+                     'unverified_candidate', 'credential_prompt', 'evidence_ids', 'analysis_status',
+                     'functions_inspected', 'pseudocode_truncated'):
+            self.assertIn(term, terms)
+        # Strings, names and pseudocode come from the sample; the AI may quote them. YARA modes are
+        # ordinary words ("as strings"), and so is the hyphenated method name.
+        for term in ('_inert_reference_0', 'hybrid', 'strings', 'auto', 'machsentry-static-heuristic-v2'):
+            self.assertNotIn(term, terms)
+
+    def test_a_strings_mode_rule_keeps_the_glossary_word_free(self):
+        report = support.report()
+        report['yara']['effective_mode'] = 'strings'
+        terms = internal_terms(json.loads(select(report, SAMPLE, 'pt-BR', 40000).text))
+        self.assertNotIn('strings', terms)
+
+    def test_the_rule_is_dropped_when_it_does_not_fit(self):
+        report = support.report()
+        report['yara']['rule'] = 'rule r { strings: $a = "TEST" condition: $a }' + ' ' * 1900
+        selection = select(report, SAMPLE, 'pt-BR', 4000)
+        self.assertIsNotNone(selection)
+        document = json.loads(selection.text)
+        self.assertEqual((document['yara']['rule'], document['yara']['rule_truncated']), (None, False))
+        self.assertLessEqual(len(selection.text.encode()), 4000)
 
 if __name__ == '__main__':
     unittest.main()

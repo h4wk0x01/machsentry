@@ -2,9 +2,10 @@
 
 The document carries the site-verified sample identity, the engine's assessment and coverage,
 findings with their evidence ids, the string evidence they reference (each <= 300 chars),
-functions with pseudocode chosen by finding relevance (each <= 4,000 chars), script excerpts
-(<= 1,500 chars), IOC candidates and the YARA status. Worker paths from report.json are never
-copied. Items are added in priority order while the serialized UTF-8 size fits the budget.
+functions with pseudocode chosen by finding relevance (each <= 4,000 chars), the YARA result
+with its rule text (<= 2,000 chars), script excerpts (<= 1,500 chars) and IOC candidates. Worker
+paths from report.json are never copied. Items are added in priority order while the serialized
+UTF-8 size fits the budget.
 
 Citable ids are the strings sent and the finding ids: report-view.json resolves only findings and
 the evidence they reference, so the site can check nothing else. Script and IOC entries point to
@@ -15,12 +16,20 @@ their own.
 from dataclasses import dataclass
 import json
 
-SCHEMA = 'unpacked-analysis-ai-input/1'
+SCHEMA = 'unpacked-analysis-ai-input/2'
 STRING_CHARS = 300
 PSEUDOCODE_CHARS = 4000
 SCRIPT_CHARS = 1500
 IOC_CHARS = 300
+YARA_RULE_CHARS = 2000
 FIRST_PASS_STRINGS = 3
+# Engine values the AI must explain in words instead of copying. The YARA mode stays out: its values
+# (strings, opcodes, auto) are ordinary analyst words.
+_ENUM_PATHS = (('assessment', 'verdict'), ('assessment', 'maliciousness'), ('assessment', 'analysis_status'),
+               ('yara', 'status'), ('coverage', 'runtime'), ('coverage', 'network'))
+# English engine values without an underscore that read as a leak in Portuguese text.
+ENGINE_WORDS = frozenset({'partial', 'suspicious', 'inconclusive', 'unconfirmed', 'analyzed', 'rejected', 'failed',
+                          'skipped'})
 
 
 def dumps(value) -> str:
@@ -49,6 +58,35 @@ class Selection:
     text: str
     evidence_ids: frozenset
     finding_ids: frozenset
+
+
+def internal_terms(document: dict) -> frozenset:
+    """Keys and engine values of the AI input that must not reach the analyst as raw words.
+
+    Keys are fixed worker names everywhere, so every snake_case key counts. Values come from the
+    engine (verdicts, statuses, categories) or from the sample (strings, names, pseudocode); only the
+    engine ones are read, and only when they have an underscore or are in ENGINE_WORDS.
+    """
+    terms, values = set(), []
+
+    def walk(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if '_' in key:
+                    terms.add(key)
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(document)
+    values += [_dict(document.get(section)).get(key) for section, key in _ENUM_PATHS]
+    values += [item.get('status') for item in _list(_dict(document.get('coverage')).get('slices')) if isinstance(item, dict)]
+    values += [item.get('category') for item in _list(document.get('findings')) if isinstance(item, dict)]
+    values += [item.get('classification') for item in _list(document.get('ioc_candidates')) if isinstance(item, dict)]
+    terms.update(value for value in values
+                 if isinstance(value, str) and value and ('_' in value or value in ENGINE_WORDS))
+    return frozenset(terms)
 
 
 def function_keys(report: dict) -> frozenset:
@@ -92,7 +130,12 @@ def select(report: dict, sample: dict, locale: str, budget: int) -> Selection | 
                         'reference_budget_exhausted': slices.get(item.get('index'), {}).get('reference_budget_exhausted')}
                        for item in _list(report.get('slices')) if isinstance(item, dict)],
         },
-        'yara': {'status': yara.get('status'), 'mode': yara.get('effective_mode') or yara.get('requested_mode')},
+        'yara': {'status': yara.get('status'), 'mode': yara.get('effective_mode') or yara.get('requested_mode'),
+                 'reason': _clip(yara.get('reason'), STRING_CHARS)[0] or None,
+                 'sample_matched': _dict(yara.get('validation')).get('sample_matched'),
+                 'clean_files_tested': _dict(yara.get('validation')).get('negative_count'),
+                 'clean_files_matched': _dict(yara.get('validation')).get('negative_matches'),
+                 'rule': None, 'rule_truncated': False},
         'findings': finding_entries,
         'strings': [], 'functions': [], 'scripts': [], 'ioc_candidates': [],
         'omitted': {'strings': 0, 'functions': 0, 'scripts': 0, 'ioc_candidates': 0},
@@ -163,6 +206,11 @@ def select(report: dict, sample: dict, locale: str, budget: int) -> Selection | 
     for identifiers in referenced:
         for identifier in identifiers[FIRST_PASS_STRINGS:]:
             add_string(identifier)
+    if isinstance(yara.get('rule'), str) and yara['rule']:
+        rule, truncated = _clip(yara['rule'], YARA_RULE_CHARS)
+        document['yara'].update(rule=rule, rule_truncated=truncated)
+        if not fits():
+            document['yara'].update(rule=None, rule_truncated=False)
     document['omitted']['strings'] = len({identifier for identifiers in referenced for identifier in identifiers
                                           if identifier in strings} - included)
     for script in _list(report.get('scripts')):

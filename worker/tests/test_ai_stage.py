@@ -102,6 +102,112 @@ class AiStageTests(unittest.TestCase):
         instructions = openai.requests[0]['body']['instructions']
         self.assertIn('strings[].id or findings[].id, nothing else', instructions)
 
+    def test_writing_issues_get_one_correction_that_replaces_the_first_output(self):
+        sloppy = support.valid_output()
+        sloppy['summary'] = 'A amostra tem indicadores high_risk_indicators.'
+        fixed = support.valid_output()
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy))),
+                                        ('json', 200, support.response_body(json.dumps(fixed), output_tokens=400)))
+        self.assertEqual((result.status, result.output, result.validation_errors), ('completed', fixed, []))
+        second = openai.requests[1]['body']
+        correction = json.loads(second['input'])
+        # Rewording sends the previous output alone and asks for about its size.
+        self.assertEqual(set(correction), {'correction'})
+        self.assertEqual(correction['correction']['kind'], 'writing')
+        self.assertEqual(json.loads(correction['correction']['previous_output']), sloppy)
+        self.assertEqual(second['max_output_tokens'], 300 + 1000)
+        self.assertIn('summary: write "o sample" or "os samples", never "amostra"', correction['correction']['errors'])
+        self.assertIn('summary: "high_risk_indicators" is an input key or engine value; say what it means',
+                      correction['correction']['errors'])
+        self.assertEqual(len(self.site.calls('/jobs/:id/ai/settle')), 2)
+        reserve = self.site.calls('/jobs/:id/ai/reserve')[1]
+        self.assertLess(reserve['inputTokens'], 20000)
+
+    def test_a_failed_writing_correction_keeps_the_first_output(self):
+        sloppy = support.valid_output()
+        sloppy['gaps'] = ['As pseudocódigos estão curtos.']
+        broken = support.valid_output()
+        broken['behaviors'][0]['evidence_ids'] = ['s9:str:404']
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy))),
+                                        ('json', 200, support.response_body(json.dumps(broken))))
+        self.assertEqual(len(openai.requests), 2)
+        self.assertEqual((result.status, result.output, result.validation_errors, result.error_code),
+                         ('completed', sloppy, [], None))
+
+    def test_a_denied_writing_correction_keeps_the_first_output(self):
+        sloppy = support.valid_output()
+        sloppy['summary'] = 'A amostra pede senha.'
+        self.site.respond('/jobs/:id/ai/reserve', lambda body: (200, {'granted': True, 'callId': 'call_0'})
+                          if body['callIndex'] == 0 else (200, {'granted': False, 'reason': 'daily_budget'}))
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy))))
+        self.assertEqual(len(openai.requests), 1)
+        self.assertEqual((result.status, result.output, result.error_code), ('completed', sloppy, None))
+
+    def test_the_writing_correction_fits_the_site_job_budget_on_a_large_report(self):
+        # The site prices a reservation at 0.75 micros per input token and 4.5 per output token and refuses
+        # it when the job would pass 70,000 micros (lib/analysis/server/worker.ts in Unpacked).
+        self.report = support.report(pseudocode_chars=4000)
+        spent = []
+
+        def reserve(body):
+            reserved = (75 * body['inputTokens'] + 450 * body['maxOutputTokens'] + 99) // 100
+            if sum(spent) + reserved > 70_000:
+                return 200, {'granted': False, 'reason': 'job_budget'}
+            return 200, {'granted': True, 'callId': f'call_{body["callIndex"]}'}
+
+        def settle(body):
+            usage = body.get('usage') or {}
+            cost = (75 * usage.get('inputTokens', 0) + 450 * usage.get('outputTokens', 0) + 99) // 100
+            spent.append(cost)
+            return 200, {'costMicros': cost}
+
+        self.site.respond('/jobs/:id/ai/reserve', reserve)
+        self.site.respond('/jobs/:id/ai/settle', settle)
+        sloppy = support.valid_output()
+        sloppy['summary'] = 'A amostra pede senha.'
+        result, openai = self.run_stage(
+            ('json', 200, support.response_body(json.dumps(sloppy), input_tokens=10_000, output_tokens=1720)),
+            ('json', 200, support.response_body(json.dumps(support.valid_output()), output_tokens=1500)))
+        self.assertGreater(len(openai.requests[0]['body']['input'].encode()), 30_000)
+        self.assertEqual(len(openai.requests), 2)
+        self.assertEqual(result.output, support.valid_output())
+        self.assertLessEqual(sum(spent), 70_000)
+
+    def test_an_uncertain_or_refused_writing_correction_keeps_the_first_output(self):
+        sloppy = support.valid_output()
+        sloppy['summary'] = 'A amostra pede senha.'
+        for second in (('sleep', 2.0), ('json', 200, support.response_body(refusal='no'))):
+            with self.subTest(second=second[0]):
+                result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy))), second,
+                                                timeout=0.5)
+                self.assertEqual(len(openai.requests), 2)
+                self.assertEqual((result.status, result.output, result.validation_errors, result.error_code),
+                                 ('completed', sloppy, [], None))
+
+    def test_a_writing_correction_is_skipped_when_the_budget_cannot_hold_the_rewrite(self):
+        sloppy = support.valid_output()
+        sloppy['summary'] = 'A amostra pede senha.'
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy), output_tokens=4500)))
+        self.assertEqual(len(openai.requests), 1)
+        self.assertEqual((result.status, result.output), ('completed', sloppy))
+
+    def test_instructions_carry_the_glossary_and_the_meaning_of_engine_values(self):
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(support.valid_output()))))
+        self.assertEqual(result.prompt_version, 'unpacked-analysis-ai-v2')
+        instructions = openai.requests[0]['body']['instructions']
+        for expected in ('"o sample" e "os samples" (nunca "amostra")', '"o pseudocódigo" e "os pseudocódigos"',
+                         'positive_only = regra que casa com o sample', 'never call the analysis partial',
+                         'read the pseudocode of each function'):
+            self.assertIn(expected, instructions)
+
+    def test_an_older_prompt_version_in_the_grant_is_refused(self):
+        claim = support.raw_claim()
+        claim['ai']['promptVersion'] = 'unpacked-analysis-ai-v1'
+        self.claim = parse_claim(claim)
+        result, openai = self.run_stage()
+        self.assertEqual((result.status, result.error_code), ('failed', 'prompt_version_mismatch'))
+        self.assertEqual(openai.requests, [])
+
     def test_correction_can_complete(self):
         bad = support.valid_output()
         bad['functions'][0]['address'] = '0xdeadbeef'

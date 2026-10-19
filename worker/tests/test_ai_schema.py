@@ -4,7 +4,7 @@ import copy
 import unittest
 
 import worker_support as support
-from machsentry_worker.ai_schema import OUTPUT_SCHEMA, text_format, validate
+from machsentry_worker.ai_schema import OUTPUT_SCHEMA, text_format, validate, writing_issues
 from machsentry_worker.evidence import function_keys
 
 EVIDENCE = {'s0:str:0', 's0:str:1'}
@@ -90,6 +90,49 @@ class SchemaTests(unittest.TestCase):
         output['functions'][0].pop('title')
         self.assertTrue(any(error.startswith('functions[0]: must have exactly the keys') for error in self.errors(output)))
 
+
+
+
+class WritingTests(unittest.TestCase):
+    TERMS = frozenset({'positive_only', 'high_risk_indicators', 'partial', 'evidence_ids'})
+
+    def test_clean_output_has_no_issues(self):
+        self.assertEqual(writing_issues(support.valid_output(), 'pt-BR', self.TERMS), [])
+
+    def test_pt_br_glossary_grammar_dashes_negations_and_raw_terms(self):
+        output = copy.deepcopy(support.valid_output())
+        output['summary'] = 'A amostra tem indicadores high_risk_indicators — e a regra está positive_only.'
+        output['gaps'] = ['As pseudocódigos estão curtos.', 'Não há IOC candidates.']
+        output['next_steps'] = ['A string por si só não prova a coleta.']
+        output['behaviors'][0]['explanation'] = 'A análise é partial.'
+        issues = writing_issues(output, 'pt-BR', self.TERMS)
+        joined = '\n'.join(issues)
+        for expected in ('summary: em dash', 'summary: write "o sample"', 'summary: "high_risk_indicators"',
+                         'summary: "positive_only"', 'gaps[0]: pseudocódigo is masculine',
+                         'gaps[1]: write "candidatos a IOC"', 'next_steps[0]: drop the phrase "não prova"',
+                         'next_steps[0]: drop the phrase "por si só"', 'behaviors[0].explanation: "partial"'):
+            self.assertIn(expected, joined)
+
+    def test_english_keeps_plain_engine_words_and_official_technique_names(self):
+        output = copy.deepcopy(support.valid_output())
+        output['summary'] = 'The static report is partial by design; the rule is positive_only.'
+        output['techniques'][0]['name'] = 'Credentials from Password Stores — Keychain'
+        issues = writing_issues(output, 'en-US', self.TERMS)
+        self.assertEqual(issues, ['summary: "positive_only" is an input key or engine value; say what it means'])
+
+    def test_quotes_prepositions_and_adjectives_are_left_alone(self):
+        output = copy.deepcopy(support.valid_output())
+        output['summary'] = 'O sample mostra a string "Senha — partial amostra" e a malícia não comprovada.'
+        output['gaps'] = ['Comparado a pseudocódigos de outros samples, falta o trecho de rede.']
+        self.assertEqual(writing_issues(output, 'pt-BR', self.TERMS), [])
+        output['gaps'] = ['Pseudocódigo curto. A pseudocódigo termina cedo.']
+        self.assertEqual(writing_issues(output, 'pt-BR', self.TERMS),
+                         ['gaps[0]: pseudocódigo is masculine: "o pseudocódigo", "os pseudocódigos"'])
+
+    def test_issue_count_is_capped(self):
+        output = copy.deepcopy(support.valid_output())
+        output['gaps'] = ['amostra — não prova'] * 12
+        self.assertEqual(len(writing_issues(output, 'pt-BR')), 16)
 
 if __name__ == '__main__':
     unittest.main()

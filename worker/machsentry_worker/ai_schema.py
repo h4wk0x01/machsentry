@@ -3,6 +3,8 @@
 `OUTPUT_SCHEMA` is sent as the Responses API strict `text.format`. Strict mode requires every
 property and `additionalProperties: false`; string length caps are not schema keywords there, so
 `validate` enforces them together with evidence-id and (architecture, address) references.
+`writing_issues` checks the text the analyst reads against the Unpacked writing rules; its issues
+earn one correction call, never a rejection of an otherwise valid output.
 
 The site re-checks the output and drops what fails without telling anyone, so these rules match
 its validateAi: lengths in UTF-16 code units (JavaScript string length) and 200 for technique
@@ -20,6 +22,34 @@ LIMITS = {'behaviors': 12, 'techniques': 12, 'functions': 32, 'gaps': 12, 'next_
 EVIDENCE_PER_CLAIM = 16
 FUNCTIONS_PER_BEHAVIOR = 8
 MAX_ERRORS = 32
+MAX_WRITING_ISSUES = 16
+
+# Writing rules of the Unpacked AGENTS.md that a pattern can check. Technique names stay out: they
+# are the official MITRE ATT&CK names.
+_NEGATIONS = {
+    'pt-BR': ('não prova', 'não é prova', 'por si só', 'sozinho não', 'sozinha não', 'não significa',
+              'não estabelece', 'não mostra que', 'não garante', 'não demonstra', 'não comprova', 'não basta',
+              'não é um veredito', 'não quer dizer que'),
+    'en-US': ('does not prove', 'is a lead, not proof', 'by itself', 'on its own', 'alone does not',
+              'does not mean', 'does not establish', 'does not show that', 'does not guarantee',
+              'does not certify', 'not a verdict'),
+}
+_NEGATION_PATTERNS = {locale: tuple(re.compile(r'(?<!\w)' + re.escape(phrase) + r'(?!\w)', re.IGNORECASE)
+                                     for phrase in phrases) for locale, phrases in _NEGATIONS.items()}
+_PATTERNS = {
+    'pt-BR': (
+        (re.compile(r'\bamostras?\b', re.IGNORECASE), 'write "o sample" or "os samples", never "amostra"'),
+        # A bare "a" is often the preposition ("comparado a pseudocódigos"); only a sentence-initial "A" is the article.
+        (re.compile(r'(?:^|[.!?:]\s+)A\s+pseudoc[oó]digo\b|\b(?:as|uma|estas|essas|esta|essa|duas|das|nas)\s+'
+                    r'pseudoc[oó]digos?\b', re.IGNORECASE),
+         'pseudocódigo is masculine: "o pseudocódigo", "os pseudocódigos"'),
+        (re.compile(r'\bIOC candidates?\b', re.IGNORECASE), 'write "candidatos a IOC"'),
+    ),
+    'en-US': (),
+}
+_DASH = re.compile('\u2014')
+# Quoted spans are sample content the AI cites (strings, paths, commands); they keep their own words.
+_QUOTED = re.compile('"[^"]*"|\u201c[^\u201d]*\u201d|`[^`]*`')
 
 
 def _object(properties: dict) -> dict:
@@ -52,6 +82,38 @@ OUTPUT_SCHEMA = _object({
 
 def text_format() -> dict:
     return {'type': 'json_schema', 'name': FORMAT_NAME, 'schema': OUTPUT_SCHEMA, 'strict': True}
+
+
+def writing_issues(output: dict, locale: str, internal_terms=frozenset()) -> list[str]:
+    """Writing problems in a valid output, as correction messages; an empty list means none found."""
+    fields = [('summary', output['summary'])]
+    for index, behavior in enumerate(output['behaviors']):
+        fields += [(f'behaviors[{index}].title', behavior['title']),
+                   (f'behaviors[{index}].explanation', behavior['explanation'])]
+    for index, technique in enumerate(output['techniques']):
+        fields.append((f'techniques[{index}].rationale', technique['rationale']))
+    for index, entry in enumerate(output['functions']):
+        fields += [(f'functions[{index}].title', entry['title']),
+                   (f'functions[{index}].explanation', entry['explanation'])]
+    for key in ('gaps', 'next_steps'):
+        fields += [(f'{key}[{index}]', value) for index, value in enumerate(output[key])]
+    # In English, plain engine words (partial, suspicious) are ordinary words; only snake_case leaks.
+    terms = [(term, re.compile(r'(?<![A-Za-z0-9_])' + re.escape(term) + r'(?![A-Za-z0-9_])'))
+             for term in sorted(internal_terms) if term and ('_' in term or locale == 'pt-BR')]
+    issues: list[str] = []
+    for path, value in fields:
+        value = _QUOTED.sub(' ', value)
+        found = ['em dash; use a period, comma, colon or parentheses'] if _DASH.search(value) else []
+        found += [f'drop the phrase "{phrase}" and say what the evidence shows'
+                  for phrase, pattern in zip(_NEGATIONS.get(locale, ()), _NEGATION_PATTERNS.get(locale, ()))
+                  if pattern.search(value)]
+        found += [message for pattern, message in _PATTERNS.get(locale, ()) if pattern.search(value)]
+        found += [f'"{term}" is an input key or engine value; say what it means'
+                  for term, pattern in terms if pattern.search(value)]
+        for message in found:
+            if len(issues) < MAX_WRITING_ISSUES:
+                issues.append(f'{path}: {message}')
+    return issues
 
 
 def validate(output, evidence_ids, finding_ids, function_keys) -> list[str]:
