@@ -21,7 +21,7 @@ from .job import Claim
 from .logs import log
 from .site_api import LeaseLost, SiteError
 
-PROMPT_VERSION = 'unpacked-analysis-ai-v2'
+PROMPT_VERSION = 'unpacked-analysis-ai-v3'
 ASSESSMENT_SCHEMA = 'unpacked-analysis-ai/1'
 RESERVATION_OVERHEAD = 256
 MIN_CALL_SECONDS = 60
@@ -38,12 +38,17 @@ _WRITING = {
         '- Glossário: "o sample" e "os samples" (nunca "amostra"); "a string" e "as strings"; "o pseudocódigo" '
         'e "os pseudocódigos"; "a função"; "a regra YARA"; "candidatos a IOC"; "a arquitetura arm64" ou "a '
         'arquitetura x86_64" em vez de "slice". Concorde gênero e número com esses termos.',
-        '- Use os termos em português acima no lugar dos ingleses.',
+        '- Use os termos em português acima no lugar dos ingleses. Evite "sustentar": escreva "mostra", '
+        '"permite afirmar" ou "confirma".',
+        '- Em lacunas e próximos passos, diga direto o que falta e o que resolve, com redação variada; não repita a '
+        'mesma frase ou o mesmo molde em vários itens.',
     ],
     'en-US': [
         '- Write as an experienced malware analyst speaks, in short, direct sentences.',
         '- Glossary: "the sample", "the string", "the pseudocode", "the function", "the YARA rule", "IOC '
         'candidates", "the arm64 build" or "the x86_64 build" instead of "slice".',
+        '- In gaps and next steps, say directly what is missing and what settles it, with varied wording; do not '
+        'repeat one sentence or template across items.',
     ],
 }
 # What the engine values mean, so the text explains them instead of copying them.
@@ -107,8 +112,8 @@ def instructions(locale: str) -> str:
         'Writing:',
         f'- Write every text field in {_LANGUAGE[locale]}; technique names stay as the official ATT&CK names.',
         *_WRITING[locale],
-        '- Never copy JSON keys, ids, enum values or other snake_case words from the input into the text; say what '
-        f'they mean. {_MEANINGS[locale]}',
+        '- Never copy JSON keys, ids, enum values or other snake_case words from the input into the text. Explain '
+        'them in your own words, without pasting these definitions: ' + _MEANINGS[locale],
         '- Say what the evidence shows and which artifact would settle what is still open, with at most one '
         'limitation per text, tied to that artifact.',
         '- Skip sentences that correct a conclusion nobody drew ("não prova", "por si só", "não significa", "não '

@@ -193,16 +193,16 @@ class AiStageTests(unittest.TestCase):
 
     def test_instructions_carry_the_glossary_and_the_meaning_of_engine_values(self):
         result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(support.valid_output()))))
-        self.assertEqual(result.prompt_version, 'unpacked-analysis-ai-v2')
+        self.assertEqual(result.prompt_version, 'unpacked-analysis-ai-v3')
         instructions = openai.requests[0]['body']['instructions']
         for expected in ('"o sample" e "os samples" (nunca "amostra")', '"o pseudocódigo" e "os pseudocódigos"',
                          'positive_only = regra que casa com o sample', 'never call the analysis partial',
-                         'read the pseudocode of each function'):
+                         'read the pseudocode of each function', 'Evite "sustentar"', 'without pasting these definitions'):
             self.assertIn(expected, instructions)
 
     def test_an_older_prompt_version_in_the_grant_is_refused(self):
         claim = support.raw_claim()
-        claim['ai']['promptVersion'] = 'unpacked-analysis-ai-v1'
+        claim['ai']['promptVersion'] = 'unpacked-analysis-ai-v2'
         self.claim = parse_claim(claim)
         result, openai = self.run_stage()
         self.assertEqual((result.status, result.error_code), ('failed', 'prompt_version_mismatch'))

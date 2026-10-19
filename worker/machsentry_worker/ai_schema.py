@@ -23,6 +23,9 @@ EVIDENCE_PER_CLAIM = 16
 FUNCTIONS_PER_BEHAVIOR = 8
 MAX_ERRORS = 32
 MAX_WRITING_ISSUES = 16
+# A word sequence repeated in this many gaps or next steps reads as a template.
+REPEATED_PHRASE_WORDS = 4
+REPEATED_PHRASE_ITEMS = 3
 
 # Writing rules of the Unpacked AGENTS.md that a pattern can check. Technique names stay out: they
 # are the official MITRE ATT&CK names.
@@ -44,6 +47,8 @@ _PATTERNS = {
                     r'pseudoc[oó]digos?\b', re.IGNORECASE),
          'pseudocódigo is masculine: "o pseudocódigo", "os pseudocódigos"'),
         (re.compile(r'\bIOC candidates?\b', re.IGNORECASE), 'write "candidatos a IOC"'),
+        (re.compile(r'\bsustent\w*', re.IGNORECASE), 'avoid "sustentar"; write "mostra", "permite afirmar" or "confirma"'),
+        (re.compile(r'\bslices?\b', re.IGNORECASE), 'write "arquitetura" (arm64, x86_64) instead of "slice"'),
     ),
     'en-US': (),
 }
@@ -84,6 +89,19 @@ def text_format() -> dict:
     return {'type': 'json_schema', 'name': FORMAT_NAME, 'schema': OUTPUT_SCHEMA, 'strict': True}
 
 
+def _repeated_phrase(items: list) -> str | None:
+    """The first word sequence found in REPEATED_PHRASE_ITEMS or more items, ignoring case and quotes."""
+    seen: dict[tuple, int] = {}
+    for item in items:
+        words = re.findall(r'\w+', _QUOTED.sub(' ', item).lower())
+        grams = [tuple(words[i:i + REPEATED_PHRASE_WORDS]) for i in range(len(words) - REPEATED_PHRASE_WORDS + 1)]
+        for gram in dict.fromkeys(grams):  # once per item, in reading order
+            seen[gram] = seen.get(gram, 0) + 1
+            if seen[gram] >= REPEATED_PHRASE_ITEMS:
+                return ' '.join(gram)
+    return None
+
+
 def writing_issues(output: dict, locale: str, internal_terms=frozenset()) -> list[str]:
     """Writing problems in a valid output, as correction messages; an empty list means none found."""
     fields = [('summary', output['summary'])]
@@ -101,6 +119,10 @@ def writing_issues(output: dict, locale: str, internal_terms=frozenset()) -> lis
     terms = [(term, re.compile(r'(?<![A-Za-z0-9_])' + re.escape(term) + r'(?![A-Za-z0-9_])'))
              for term in sorted(internal_terms) if term and ('_' in term or locale == 'pt-BR')]
     issues: list[str] = []
+    for key in ('gaps', 'next_steps'):
+        phrase = _repeated_phrase(output[key])
+        if phrase and len(issues) < MAX_WRITING_ISSUES:
+            issues.append(f'{key}: "{phrase}" repeats in several items; vary the wording')
     for path, value in fields:
         value = _QUOTED.sub(' ', value)
         found = ['em dash; use a period, comma, colon or parentheses'] if _DASH.search(value) else []

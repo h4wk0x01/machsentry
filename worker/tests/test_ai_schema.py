@@ -129,6 +129,20 @@ class WritingTests(unittest.TestCase):
         self.assertEqual(writing_issues(output, 'pt-BR', self.TERMS),
                          ['gaps[0]: pseudocódigo is masculine: "o pseudocódigo", "os pseudocódigos"'])
 
+    def test_sustentar_slice_and_repeated_templates(self):
+        output = copy.deepcopy(support.valid_output())
+        output['functions'][0]['explanation'] = 'Isso sustenta o indício de coleta no slice arm64.'
+        output['gaps'] = ['Falta a rede. O artefato que fecha isso é o PCAP.',
+                          'Falta o arquivo. O artefato que fecha isso é o trace.',
+                          'Falta a UI. O artefato que fecha isso é a função de diálogo.']
+        issues = '\n'.join(writing_issues(output, 'pt-BR'))
+        self.assertIn('functions[0].explanation: avoid "sustentar"', issues)
+        self.assertIn('functions[0].explanation: write "arquitetura"', issues)
+        self.assertIn('gaps: "o artefato que fecha" repeats in several items', issues)
+        output['gaps'] = ['Falta o tráfego do envio para ver o destino.', 'Um trace de arquivos mostra a leitura do Login Data.']
+        output['functions'][0]['explanation'] = 'Isso mostra o pedido de senha na arquitetura arm64.'
+        self.assertEqual(writing_issues(output, 'pt-BR'), [])
+
     def test_issue_count_is_capped(self):
         output = copy.deepcopy(support.valid_output())
         output['gaps'] = ['amostra — não prova'] * 12
