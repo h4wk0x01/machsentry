@@ -289,3 +289,60 @@ fila, créditos ou integração visual implantada. Antes de produção paga,
 precisa de isolamento externo de workers, validação em corpus amplo e uma
 política de cobrança/retentativas implementada conforme o
 [contrato de integração](machsentry-integration.md).
+
+## Seleção de código, 2026-10-21
+
+O ruleset 2.1.0 acrescenta seleção por capacidades, revisão inicial de funções,
+chamadores de APIs e até oito funções chamadas diretamente. As capacidades de
+clipboard, endereços de criptomoedas e processos têm peso zero. A referência a
+uma string pode atravessar até dois endereços de dados, mantendo os IDs do REA.
+
+REA/Ghidra 12.1.4 real, em Windows, inspecionou cinco funções por arquitetura
+do fixture universal inerte. A quinta função, omitida pela seleção anterior,
+entrou pela revisão inicial. O negativo teve uma função inspecionada e score
+zero, com YARA ausente. O fixture positivo manteve score 75, YARA híbrida,
+match positivo e zero matches nos dois negativos. Schemas e fechamento das
+sessões foram verificados; os hashes dos três inputs permaneceram iguais.
+
+Comparação sequencial com os mesmos inputs, limites e sessões novas do REA:
+
+| Versão        | Funções | Tempo    | CPU amostrada | Pico RSS amostrado  |
+| ------------- | ------- | -------- | ------------- | ------------------- |
+| HEAD anterior | 8       | 28,710 s | 42,156 s      | 1.195.966.464 bytes |
+| Seleção 2.1.0 | 10      | 27,110 s | 41,734 s      | 1.042.042.880 bytes |
+
+Uma execução por versão, com cache do SO aquecido. A amostragem pode perder
+processos curtos e picos transitórios. O ensaio usou zero chamadas pagas de IA;
+tokens de desenvolvimento e custo na AWS ficaram fora da medição.
+
+Artefatos ignorados em `reports/macos/clipboard-2026-10-21/`, incluindo
+`equivalent-comparison.json` e `provider-validation-summary.json`. O sample
+relatado pelo founder ainda precisa ser reanalisado; os testes acima usam
+somente fixtures inertes. O release de produção permanece inalterado.
+
+### Clipboard e resolução dinâmica, 2026-10-21
+
+O verificador `scripts/verify-machsentry-clipboard.py` cria funções inertes
+que retornam dados e chamam um stub local `_dlsym` que retorna zero. Ghidra
+real recuperou oito funções em arm64/x86_64 e preservou os caminhos
+código → string e código → ponteiro → string. `procedure_callers` identificou
+o chamador do stub. Os vínculos das capacidades, hashes, schema e fechamento
+foram conferidos. O fixture recebeu score zero e YARA ausente.
+
+Execução 0.4.2/regras 2.2.0: 28,810 s, CPU amostrada 46,375 s e pico RSS
+amostrado de 982.368.256 bytes. A amostragem pode perder processos curtos e
+picos transitórios. Artefatos em
+`reports/macos/clipboard-2026-10-21/regression-vt/stub-provider-results/`.
+
+O contexto de funções enviado à IA passou a preservar até 4.000 caracteres
+entre início, final e janelas com offsets exatos, além de até 16 chamadas.
+Em 20 repetições da seleção sobre as mesmas funções sintéticas longas, o
+método anterior enviou seis funções sem os trechos posteriores de API; o
+novo enviou cinco com esses trechos. A seleção passou de 1,6 ms para 7,7 ms,
+e o pico de alocações Python, medido em execução separada, de 624.416 para
+1.346.752 bytes. Os pedidos ficaram dentro de 30.000 bytes. Tokens do modelo,
+CPU/RSS do provedor nessa seleção e custo AWS ficaram fora da medição.
+
+O VirusTotal foi consultado pelo hash confirmado e seus dados ficaram como
+referência externa. O binário original está indisponível; sua classificação
+aguarda reanálise. Os ensaios acima usaram zero chamadas pagas de IA.

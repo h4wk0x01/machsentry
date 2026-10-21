@@ -71,10 +71,11 @@ um analisador independente. Senhas e o ambiente herdado não são persistidos.
   `candidate-rejected.yar.txt`.
 
 O pseudocódigo não é o fonte original nem possui garantia de compilação ou
-fidelidade completa. As funções candidatas são selecionadas por referências
-do REA às categorias de indicadores configuradas; não se promete engenharia
-reversa completa de todo o binário. As associações não provam execução nem
-intenção maliciosa isoladamente. Endereços são VAs sem ASLR, identificados pela
+fidelidade completa. A seleção combina referências a indicadores, chamadas a APIs,
+oito funções iniciais e até oito funções chamadas diretamente. Clipboard,
+formatos de carteira, resolução dinâmica de APIs e consultas ao ambiente
+orientam a revisão com peso zero. Os chamadores de `dlopen`/`dlsym` recebem prioridade.
+As referências preservam até dois elos intermediários de dados. Endereços são VAs sem ASLR, identificados pela
 arquitetura. Offsets referem-se ao arquivo original ou membro descomprimido.
 Offsets indisponíveis permanecem `null`, sem estimativa.
 
@@ -92,7 +93,7 @@ Há estilos para impressão e telas menores. A regra continua sem comentários
 explicativos extensos: a justificativa aparece no relatório. Candidatas
 rejeitadas e relatórios com falha não exibem download de `detection.yar`.
 
-O fluxo usa `open_binary`, `list_strings`, `xrefs`,
+O fluxo usa `open_binary`, `list_strings`, `list_procedures`, `procedure_callers`, `xrefs`,
 `resolve_containing_procedure`, `analyze_function`, `address_to_file_offset`,
 `read_bytes`, `inspect_native_instruction`, `get_evidence_bundle` e
 `close_binary`. A sessão REA é a proprietária do processo Ghidra e do banco
@@ -116,7 +117,8 @@ pontos e referências de código em três categorias fortes na mesma slice;
 nenhum score certifica benignidade. A maliciosidade permanece `unconfirmed`: até
 funções inertes que só retornem ponteiros para strings podem disparar os indicadores.
 Referências e pseudocódigo disponibilizados permitem investigar o comportamento,
-mas o score não substitui essa avaliação. Sem slice analisada, o score é `null`
+mas o score não substitui essa avaliação. Sem slice analisada, ou sem funções
+inspecionadas e sem indicadores pontuados, o score é `null`
 e a maliciosidade fica `not_assessed`.
 
 Use `--yara-mode auto|hybrid|strings|opcodes`, `--benign-file ARQUIVO` e
@@ -148,6 +150,7 @@ match, uma limitação explícita da candidata.
 
 ```text
 .venv-unpack/Scripts/python.exe -m unittest discover -s macos_static/tests -v
+python scripts/verify-machsentry-clipboard.py --output reports/macos/clipboard-verification
 ```
 
 No macOS, use `.venv-unpack/bin/python`. Os testes determinísticos cobrem os

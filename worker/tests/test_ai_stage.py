@@ -168,7 +168,10 @@ class AiStageTests(unittest.TestCase):
         result, openai = self.run_stage(
             ('json', 200, support.response_body(json.dumps(sloppy), input_tokens=10_000, output_tokens=1720)),
             ('json', 200, support.response_body(json.dumps(support.valid_output()), output_tokens=1500)))
-        self.assertGreater(len(openai.requests[0]['body']['input'].encode()), 30_000)
+        # The reservation includes instructions, report, output schema and transport margin.
+        reserved_input = self.site.calls('/jobs/:id/ai/reserve')[0]['inputTokens']
+        self.assertGreater(reserved_input, 30_000)
+        self.assertLessEqual(reserved_input, self.claim.ai['maxInputTokensPerCall'])
         self.assertEqual(len(openai.requests), 2)
         self.assertEqual(result.output, support.valid_output())
         self.assertLessEqual(sum(spent), 70_000)
@@ -193,16 +196,90 @@ class AiStageTests(unittest.TestCase):
 
     def test_instructions_carry_the_glossary_and_the_meaning_of_engine_values(self):
         result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(support.valid_output()))))
-        self.assertEqual(result.prompt_version, 'unpacked-analysis-ai-v3')
+        self.assertEqual(result.prompt_version, 'unpacked-analysis-ai-v4')
         instructions = openai.requests[0]['body']['instructions']
         for expected in ('"o sample" e "os samples" (nunca "amostra")', '"o pseudocódigo" e "os pseudocódigos"',
                          'positive_only = regra que casa com o sample', 'never call the analysis partial',
                          'read the pseudocode of each function', 'Evite "sustentar"', 'without pasting these definitions'):
             self.assertIn(expected, instructions)
 
+    def test_zero_findings_send_observations_and_explicit_coverage_policy(self):
+        self.report.update(findings=[], functions=[], scripts=[], ioc_candidates=[])
+        self.report['evidence'] = [{'id': 's0:str:0', 'slice': 0, 'address': '0x100001000',
+                                    'text': 'TEST DATA ONLY NSPasteboard generalPasteboard'}]
+        self.report['coverage']['slices'] = [{'slice': 0, 'string_inventory_count': 12, 'strings_retained': 1,
+                                            'candidate_functions': 0, 'functions_inspected': 0,
+                                            'functions_omitted': 0}]
+        output = {'summary': 'O inventário contém referências ao clipboard. Investigue as funções de leitura.',
+                  'behaviors': [], 'techniques': [], 'functions': [],
+                  'gaps': ['Faltam as funções que referenciam o clipboard.'],
+                  'next_steps': ['Examine as referências às APIs de clipboard.']}
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(output))))
+        self.assertEqual(result.status, 'completed')
+        request = openai.requests[0]['body']
+        document = json.loads(request['input'])
+        self.assertEqual(document['strings'], [])
+        self.assertIn('NSPasteboard', document['context_strings'][0]['text'])
+        self.assertEqual(document['coverage']['strings']['provider_total'], 12)
+        for policy in ('Distinguish strings inventoried, retained and selected',
+                       'Context strings are uncitable observations', 'Preserve the engine score and verdict',
+                       'reads, content matching, writes or upload data flow'):
+            self.assertIn(policy, request['instructions'])
+        self.assertEqual(len(openai.requests), 1)
+
+    def test_context_observation_cannot_be_promoted_to_a_citable_finding(self):
+        self.report = support.unlinked_script_and_ioc(support.report())
+        bad = support.valid_output()
+        bad['behaviors'][0]['evidence_ids'] = [support.UNLINKED_IOC]
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(bad))),
+                                        ('json', 200, support.response_body(json.dumps(support.valid_output()))))
+        self.assertEqual(result.status, 'completed')
+        self.assertTrue(json.loads(openai.requests[0]['body']['input'])['context_strings'])
+        errors = json.loads(openai.requests[1]['body']['input'])['correction']['errors']
+        self.assertIn('behaviors[0].evidence_ids[0]: unknown evidence id', errors)
+
+    def test_baseline_pseudocode_is_explained_without_artificial_finding_ids(self):
+        baseline = self.report['functions'][0]
+        baseline['finding_ids'] = []
+        baseline['pseudocode'] = 'int main(void) { return 0; } /* TEST DOUBLE: baseline entry */'
+        self.report.update(findings=[], evidence=[], functions=[baseline], scripts=[], ioc_candidates=[])
+        output = {'summary': 'A função de entrada retorna zero.', 'behaviors': [], 'techniques': [],
+                  'functions': [{'architecture': baseline['architecture'], 'address': baseline['address'],
+                                 'title': 'Entrada do programa', 'explanation': 'A função retorna zero.',
+                                 'evidence_ids': []}], 'gaps': [], 'next_steps': []}
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(output))))
+        self.assertEqual((result.status, result.output), ('completed', output))
+        self.assertEqual(len(openai.requests), 1)
+        document = json.loads(openai.requests[0]['body']['input'])
+        self.assertEqual(document['functions'][0]['pseudocode'], baseline['pseudocode'])
+        self.assertEqual(document['functions'][0]['finding_ids'], [])
+        self.assertEqual(document['findings'], [])
+
+    def test_selected_late_code_and_callee_context_reach_the_reserved_ai_request(self):
+        baseline = self.report['functions'][0]
+        baseline.update(finding_ids=[], pseudocode='int main(void) {' + 'x' * 7000 +
+                        '\nhandle = dlopen("TEST", 0); symbol = dlsym(handle, "TEST"); return 0; }',
+                        direct_calls=[{'address': 'EXTERNAL:0x10', 'name': '_dlopen'},
+                                      {'address': 'EXTERNAL:0x20', 'name': '_dlsym'}])
+        self.report.update(findings=[], evidence=[], functions=[baseline], scripts=[], ioc_candidates=[])
+        output = {'summary': 'O trecho selecionado contém resolução de símbolos.', 'behaviors': [], 'techniques': [],
+                  'functions': [{'architecture': baseline['architecture'], 'address': baseline['address'],
+                                 'title': 'Resolução de símbolos', 'explanation': 'O trecho chama dlopen e dlsym.',
+                                 'evidence_ids': []}], 'gaps': [], 'next_steps': []}
+        result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(output))))
+        self.assertEqual(result.status, 'completed')
+        body = openai.requests[0]['body']
+        function = json.loads(body['input'])['functions'][0]
+        self.assertTrue(any('dlsym' in item['text'] for item in function['pseudocode_excerpts']))
+        self.assertEqual({call['name'] for call in function['callees']}, {'_dlopen', '_dlsym'})
+        self.assertIn('pseudocode_excerpts', body['instructions'])
+        self.assertIn('dlopen/dlsym', body['instructions'])
+        self.assertEqual(len(self.site.calls('/jobs/:id/ai/reserve')), 1)
+        self.assertEqual(len(self.site.calls('/jobs/:id/ai/settle')), 1)
+
     def test_an_older_prompt_version_in_the_grant_is_refused(self):
         claim = support.raw_claim()
-        claim['ai']['promptVersion'] = 'unpacked-analysis-ai-v2'
+        claim['ai']['promptVersion'] = 'unpacked-analysis-ai-v3'
         self.claim = parse_claim(claim)
         result, openai = self.run_stage()
         self.assertEqual((result.status, result.error_code), ('failed', 'prompt_version_mismatch'))

@@ -45,12 +45,26 @@ def verify_report_pipeline(output: Path, environment: dict, architectures: list[
     report = json.loads(report_path.read_text(encoding='utf-8')) if report_path.exists() else {}
     selected = [item for item in report.get('slices', []) if item.get('status') == 'analyzed']
     functions = report.get('functions', [])
+    coverage = report.get('coverage', {}).get('slices', [])
+    # The fixture defines five functions per slice. The fifth has no scored
+    # indicator and must still reach Ghidra through baseline code review.
+    expected_addresses = {f'0x{0x100000200 + 64 * index:x}' for index in range(5)}
+    baseline_verified = all(
+        {item['address'] for item in functions if item['architecture'] == architecture} == expected_addresses
+        and any(item['architecture'] == architecture and item['address'] == '0x100000300'
+                and item.get('selection_reasons') == ['baseline_code_review']
+                and not item.get('finding_ids') for item in functions)
+        for architecture in architectures)
     evidence = {item['evidence_id']: item for item in report.get('rea', {}).get('records', [])}
     validation = report.get('yara', {}).get('validation') or {}
     verified = (run.returncode == 0 and envelope.get('ok') is True and report.get('schema_version') == '2.1'
                 and (destination / 'report.html').is_file() and (destination / 'report-view.json').is_file()
                 and {item['architecture'] for item in selected} == set(architectures)
-                and len(functions) == 4 * len(architectures)
+                and len(functions) == 5 * len(architectures) and baseline_verified
+                and len(coverage) == len(architectures)
+                and all(item.get('procedure_inventory_count') == 5
+                        and item.get('functions_inspected') == 5
+                        and item.get('functions_not_selected') == 0 for item in coverage)
                 and report.get('risk', {}).get('verdict') == 'high_risk_indicators'
                 and report.get('risk', {}).get('maliciousness') == 'unconfirmed'
                 and all(item.get('pseudocode') and evidence.get(item.get('rea_evidence_id'), {}).get('provider', {}).get('id') == 'ghidra'
@@ -84,6 +98,8 @@ def verify_report_pipeline(output: Path, environment: dict, architectures: list[
             'elapsed_seconds': round(time.perf_counter() - started, 3), 'source_hashes': before,
             'sources_unchanged': unchanged, 'analyzed_architectures': [item['architecture'] for item in selected],
             'function_count': len(functions), 'pseudocode_count': sum(bool(item.get('pseudocode')) for item in functions),
+            'baseline_code_review_verified': baseline_verified,
+            'procedure_inventory_counts': [item.get('procedure_inventory_count') for item in coverage],
             'evidence_count': len(evidence), 'independent_yara_check': yara_check,
             'html_report': str(destination / 'report.html'), 'dashboard_schema_validated': bool(yara_check),
             'verified': verified and unchanged,

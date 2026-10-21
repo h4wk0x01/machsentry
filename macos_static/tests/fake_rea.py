@@ -9,13 +9,14 @@ from fixtures import fixture
 
 
 class FakeRea:
-    def __init__(self, fail_operation=None, fail_close_count=0, mismatch_digest=False):
+    def __init__(self, fail_operation=None, fail_close_count=0, mismatch_digest=False, literals=None):
         self.calls, self.records = [], []
         self.fail_operation, self.fail_close_count = fail_operation, fail_close_count
         self.mismatch_digest = mismatch_digest
         self.base = 0x100000000
         self.exited = False
         self.opened = False
+        self.explicit_literals = literals
 
     async def __aenter__(self):
         return self
@@ -45,7 +46,7 @@ class FakeRea:
             self.data = self.path.read_bytes()
             self.opened = True
             suspicious = self.data == fixture(True)
-            self.literals = ([b'osascript -e display dialog "Synthetic test" with hidden answer',
+            self.literals = self.explicit_literals if self.explicit_literals is not None else ([b'osascript -e display dialog "Synthetic test" with hidden answer',
                               b'security find-generic-password -ga "Synthetic test"', b'Login Data', b'/Cookies',
                               b'/.electrum/wallets/', b'Exodus/exodus.wallet/',
                               b'POST /synthetic-test HTTP/1.1\r\n', b'multipart/form-data',
@@ -70,6 +71,9 @@ class FakeRea:
                 result = [{'address': hex(self.base + offset), 'value': literal.decode(),
                            'string': {'encoding': 'UTF-8', 'termination': 'present_or_not_required', 'byte_length': len(literal)}}
                           for offset, literal in zip(self.locations, self.literals)]
+            elif operation == 'list_procedures':
+                result = [{'address': self.procedure['address'], 'value': self.procedure['name'],
+                           'procedure': {'external': False, 'thunk': False, 'thunk_target': None}}]
             elif operation == 'address_to_file_offset':
                 result = {'address': parameters['address'], 'file_offset': int(parameters['address'], 16) - self.base}
             elif operation == 'xrefs':

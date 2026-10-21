@@ -2,7 +2,7 @@
 
 import re
 
-RULESET_VERSION = "2.0.0"
+RULESET_VERSION = "2.2.0"
 SIGNATURE_CATEGORIES = ('credential_prompt', 'keychain_access', 'outbound_upload', 'wallet_collection', 'browser_collection')
 
 # The interpretation owner supplies exact anchor ranges to downstream detection.
@@ -15,6 +15,15 @@ ANCHORS = {
                         'multipart/form-data', 'Content-Disposition: form-data', '/sendlog', 'application/zip'),
     'persistence': ('/LaunchAgents/', '/LaunchDaemons/', 'RunAtLoad', 'launchctl load', 'launchctl bootstrap'),
     'system_discovery': ('system_profiler', 'SPHardwareDataType'),
+    'clipboard_access': ('NSPasteboard', 'generalPasteboard', 'stringForType:', 'setString:forType:',
+                         'PasteboardCopyItemFlavorData', 'PasteboardPutItemFlavor', 'pbpaste', 'pbcopy'),
+    'wallet_address_processing': ('BTC_BECH32', 'BTC_TAPROOT', 'BTC_P2PKH', 'BTC_P2SH', 'LTC_BECH32',
+                                  'DOGE_P2PKH', 'ADA_SHELLEY', 'BCH_CASHADDR', 'bitcoincash:', 'cosmos1'),
+    'process_execution': ('_popen', '_system', 'posix_spawn', 'NSTask', 'Process.launch'),
+    'dynamic_api_resolution': ('_dlopen', '_dlsym', 'objc_getClass', 'sel_registerName',
+                               'NSClassFromString', 'NSSelectorFromString'),
+    'analysis_environment_checks': ('_sysctl', '_ptrace', '_proc_pidpath', '_dyld_image_count',
+                                     '_dyld_get_image_name', '_mach_absolute_time', '_mach_timebase_info'),
 }
 
 
@@ -67,6 +76,23 @@ def find_behaviors(strings: list[dict], slice_ids: list[int]) -> list[dict]:
         add('system_discovery', 'Coleta de informações do sistema',
             'Comandos de inventário do sistema; sinal de contexto, insuficiente para classificar malware.', 5,
             select('system_profiler', 'SPHardwareDataType'))
+        # Capabilities seed code inspection without assigning risk to common APIs.
+        add('clipboard_access', 'Referências à área de transferência',
+            'APIs ou comandos de clipboard orientam a revisão das funções que leem ou escrevem esse conteúdo.',
+            0, select(*ANCHORS['clipboard_access']))
+        formats = select(*ANCHORS['wallet_address_processing'])
+        add('wallet_address_processing', 'Processamento de endereços de criptomoedas',
+            'Formatos de endereços de criptomoedas orientam a revisão do reconhecimento e do destino desses valores.',
+            0, formats if len({r['text'] for r in formats}) >= 2 else [])
+        add('process_execution', 'Referências à criação de processos',
+            'As funções associadas permitem investigar comandos construídos e os dados passados a processos filhos.',
+            0, select(*ANCHORS['process_execution']))
+        add('dynamic_api_resolution', 'Resolução dinâmica de APIs',
+            'Referências a carregamento de bibliotecas e resolução de símbolos orientam a revisão das APIs escolhidas em tempo de execução.',
+            0, select(*ANCHORS['dynamic_api_resolution']))
+        add('analysis_environment_checks', 'Consultas ao ambiente de execução',
+            'Referências a processos, imagens carregadas ou temporização orientam a revisão das condições que alteram o fluxo do programa.',
+            0, select(*ANCHORS['analysis_environment_checks']))
     return findings
 
 
@@ -74,6 +100,8 @@ def risk_score(findings, coverage_limited: bool) -> dict:
     # Score each slice independently; unrelated slices must not corroborate each other.
     per_slice = {}
     for finding in findings:
+        if finding['weight'] <= 0:
+            continue
         contribution = per_slice.setdefault(finding.get('slice', 0), {})
         contribution[finding['category']] = max(contribution.get(finding['category'], 0), finding['weight'])
     contributions = max(per_slice.values(), key=lambda c: sum(c.values()), default={})

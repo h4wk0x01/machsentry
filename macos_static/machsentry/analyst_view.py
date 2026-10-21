@@ -120,7 +120,9 @@ def analyst_view(report):
     available = risk['assessment_available']
     summary = ('A análise não pôde avaliar o arquivo. O risco permanece desconhecido.' if not available else
                'Foram encontrados indicadores compatíveis com os comportamentos abaixo. A intenção maliciosa não está confirmada.'
-               if behaviors else 'Nenhum indicador coberto pelas heurísticas foi identificado. Isso não confirma que o arquivo seja benigno.')
+               if any(finding['weight'] > 0 for finding in report['findings']) else
+               'Foram identificadas capacidades que orientam a revisão do código. A classificação depende do uso dessas funções.'
+               if behaviors else 'As regras atuais ficaram sem achados. Consulte o código selecionado e a cobertura da análise.')
     coverage_rows = {item['slice']: item for item in report['coverage']['slices']}
     slices = []
     for item in report['slices']:

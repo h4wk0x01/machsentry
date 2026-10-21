@@ -170,9 +170,9 @@ def validate(output, evidence_ids, finding_ids, function_keys) -> list[str]:
             error(path, f'has more than {limit} items')
         return value[:limit]
 
-    def evidence(value, path: str):
+    def evidence(value, path: str, *, required=True):
         entries = items(value, path, EVIDENCE_PER_CLAIM)
-        if isinstance(value, list) and not value:
+        if required and isinstance(value, list) and not value:
             error(path, 'needs at least one evidence id')
         for index, identifier in enumerate(entries):
             if not isinstance(identifier, str) or identifier not in allowed:
@@ -210,7 +210,9 @@ def validate(output, evidence_ids, finding_ids, function_keys) -> list[str]:
             function(entry['architecture'], entry['address'], path)
             text(entry['title'], f'{path}.title', NAME_CHARS)
             text(entry['explanation'], f'{path}.explanation')
-            evidence(entry['evidence_ids'], f'{path}.evidence_ids')
+            # The verified architecture/address identifies the provider dossier for baseline code.
+            # Additional string/finding citations keep the same allowlist whenever supplied.
+            evidence(entry['evidence_ids'], f'{path}.evidence_ids', required=False)
     for key in ('gaps', 'next_steps'):
         for index, value in enumerate(items(output[key], key, LIMITS[key])):
             text(value, f'{key}[{index}]')

@@ -37,11 +37,12 @@ def analyze(source: Source, limits: Limits = Limits(), negatives: list[tuple[str
     cleanup_failed = not facts['rea']['closure_confirmed'] or any(not item['confirmed'] for item in facts['rea']['staging_cleanup'])
     status = 'failed' if not analyzed or cleanup_failed else 'partial'
     risk = risk_score(findings, True)
-    risk['assessment_available'] = analyzed > 0
-    if not analyzed:
+    risk['assessment_available'] = analyzed > 0 and (bool(functions) or any(finding['weight'] > 0 for finding in findings))
+    if not risk['assessment_available']:
         risk['value'] = None
         risk['maliciousness'] = 'not_assessed'
-        risk['explanation'] = 'REA/Ghidra did not complete a selected slice; the score is unknown'
+        risk['explanation'] = ('REA/Ghidra did not complete a selected slice; the score is unknown' if not analyzed else
+                               'No functions were inspected and the configured rules produced no risk indicators; the score is unknown')
     limits_text = [
         'Static REA/Ghidra analysis only: sample and extracted scripts were never executed; no IOC was contacted',
         'Pseudocode is decompiler output, not original source and not guaranteed compilable or semantically complete',

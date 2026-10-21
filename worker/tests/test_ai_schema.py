@@ -56,6 +56,26 @@ class SchemaTests(unittest.TestCase):
         self.assertIn('functions[0]: unknown function (architecture, address)', errors)
         self.assertIn('functions[1]: unknown function (architecture, address)', errors)
 
+    def test_baseline_function_uses_its_verified_provider_identity(self):
+        output = copy.deepcopy(self.output)
+        output['behaviors'] = []
+        output['techniques'] = []
+        output['functions'][0]['evidence_ids'] = []
+        self.assertEqual(validate(output, set(), set(), self.keys), [])
+        output['functions'][0]['address'] = '0xdeadbeef'
+        self.assertIn('functions[0]: unknown function (architecture, address)',
+                      validate(output, set(), set(), self.keys))
+
+    def test_baseline_function_preserves_citation_allowlist_and_claim_requirements(self):
+        output = copy.deepcopy(self.output)
+        output['functions'][0]['evidence_ids'] = ['invented-context-id']
+        output['behaviors'][0]['evidence_ids'] = []
+        output['techniques'][0]['evidence_ids'] = []
+        errors = self.errors(output)
+        self.assertIn('functions[0].evidence_ids[0]: unknown evidence id', errors)
+        self.assertIn('behaviors[0].evidence_ids: needs at least one evidence id', errors)
+        self.assertIn('techniques[0].evidence_ids: needs at least one evidence id', errors)
+
     def test_lengths_counts_and_technique_ids(self):
         output = copy.deepcopy(self.output)
         output['summary'] = 'x' * 1501

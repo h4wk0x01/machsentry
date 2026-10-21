@@ -20,7 +20,9 @@ class EvidenceTests(unittest.TestCase):
                 continue
             self.assertLessEqual(len(selection.text.encode()), budget)
             document = json.loads(selection.text)
-            count = len(document['strings']) + len(document['functions'])
+            # Additional budget can replace many short strings with higher-priority code.
+            # Compare inspected-code inclusion rather than treating every item as equal work.
+            count = len(document['functions'])
             if previous is not None:
                 self.assertGreaterEqual(count, previous)
             previous = count
@@ -108,6 +110,120 @@ class EvidenceTests(unittest.TestCase):
         selection = select({'findings': 'nope', 'evidence': [1, 2], 'functions': [None]}, SAMPLE, 'pt-BR', 40000)
         self.assertEqual(json.loads(selection.text)['findings'], [])
 
+    def test_empty_findings_keep_inventory_coverage_and_uncitable_context(self):
+        report = support.report()
+        report.update(findings=[], functions=[], scripts=[], ioc_candidates=[])
+        report['evidence'] = [{'id': f's0:str:{index}', 'slice': 0, 'address': hex(0x100000000 + index),
+                               'text': f'TEST DATA ONLY ordinary literal {index}'} for index in range(14227)]
+        report['evidence'][13000]['text'] = 'NSPasteboard generalPasteboard stringForType:'
+        report['coverage']['slices'] = [{'slice': 0, 'string_inventory_count': 15000, 'strings_retained': 14227,
+                                        'candidate_functions': 0, 'functions_inspected': 0, 'functions_omitted': 0}]
+        selection = select(report, SAMPLE, 'pt-BR', 12000)
+        document = json.loads(selection.text)
+        self.assertEqual(document['schema'], 'unpacked-analysis-ai-input/3')
+        self.assertEqual(document['coverage']['strings'], {'provider_total': 15000, 'retained': 14227,
+                         'citable_selected': 0, 'context_selected': 24, 'unlinked_retained': 14227,
+                         'context_eligible': 14227})
+        self.assertEqual(document['coverage']['functions'], {'provider_total': None, 'not_selected': None,
+                                                            'attempted': None, 'inspection_failures': None,
+                                                            'candidates': 0, 'inspected': 0, 'omitted': 0,
+                                                           'retained': 0, 'selected': 0})
+        self.assertEqual(selection.evidence_ids, frozenset())
+        self.assertEqual(selection.finding_ids, frozenset())
+        self.assertEqual(document['strings'], [])
+        self.assertEqual(document['context_strings'][0]['inventory_ordinal'], 13000)
+        self.assertIn('NSPasteboard', document['context_strings'][0]['text'])
+        self.assertTrue(all('id' not in item and 'evidence_ids' not in item for item in document['context_strings']))
+        self.assertLessEqual(len(selection.text.encode()), 12000)
+
+    def test_context_selection_spreads_over_inventory_and_preserves_byte_budget(self):
+        report = support.unlinked_script_and_ioc(support.report())
+        report['evidence'] += [{'id': f's0:str:extra{index}', 'slice': 0, 'address': '0x100000900',
+                                'text': ('TEST DATA ONLY 🕷️ ' * 40) + str(index)} for index in range(80)]
+        for budget in (3000, 4000, 6000, 12000, 40000):
+            with self.subTest(budget=budget):
+                selection = select(report, SAMPLE, 'pt-BR', budget)
+                if selection is None:
+                    continue
+                document = json.loads(selection.text)
+                self.assertLessEqual(len(selection.text.encode()), budget)
+                context = document['context_strings']
+                self.assertEqual(document['coverage']['strings']['context_selected'], len(context))
+                self.assertEqual(document['coverage']['strings']['citable_selected'], len(document['strings']))
+                self.assertEqual(document['coverage']['functions']['selected'], len(document['functions']))
+                self.assertLessEqual(len(context), 24)
+                self.assertTrue(all(len(item['text']) <= STRING_CHARS for item in context))
+                self.assertEqual(len({item['inventory_ordinal'] for item in context}), len(context))
+        full = json.loads(select(report, SAMPLE, 'pt-BR', 40000).text)
+        ordinals = {item['inventory_ordinal'] for item in full['context_strings']}
+        self.assertIn(len(report['evidence']) - 1, ordinals)
+
+    def test_unknown_producer_counts_stay_unknown(self):
+        document = json.loads(select(support.report(), SAMPLE, 'en-US', 40000).text)
+        self.assertIsNone(document['coverage']['strings']['provider_total'])
+        self.assertIsNone(document['coverage']['functions']['candidates'])
+        self.assertTrue(all(item['strings_provider_total'] is None for item in document['coverage']['slices']))
+
+    def test_blank_heavy_inventory_keeps_unique_labels_and_imports_with_original_provenance(self):
+        report = support.report()
+        report.update(findings=[], functions=[], scripts=[], ioc_candidates=[])
+        literals = ['' if index % 2 else ' \t ' for index in range(14000)]
+        labels = ['ETH', '"ETH"', 'SUI', '"SUI"', 'BTC_BECH32', 'BTC_TAPROOT', 'DOGE_P2PKH', 'SOL']
+        imports = ['_popen', '_fgets', '_fputs', '_usleep']
+        literals += labels * 20 + imports * 5
+        report['evidence'] = [{'id': f's0:str:{index}', 'slice': 0, 'address': hex(0x100000000 + index),
+                               'text': text} for index, text in enumerate(literals)]
+        count = len(literals)
+        report['coverage']['slices'] = [{'slice': 0, 'string_inventory_count': count, 'strings_retained': count,
+                                        'candidate_functions': 0, 'functions_inspected': 0, 'functions_omitted': 0}]
+        before = json.dumps(report)
+        selection = select(report, SAMPLE, 'pt-BR', 12000)
+        document = json.loads(selection.text)
+        coverage = document['coverage']['strings']
+        self.assertEqual((coverage['provider_total'], coverage['retained'], coverage['unlinked_retained']),
+                         (count, count, count))
+        self.assertEqual(coverage['context_eligible'], len(labels) + len(imports))
+        context = document['context_strings']
+        self.assertEqual({item['text'] for item in context}, set(labels + imports))
+        self.assertEqual(len(context), len(labels) + len(imports))
+        for item in context:
+            ordinal = literals.index(item['text'])
+            self.assertEqual(item['inventory_ordinal'], ordinal)
+            self.assertEqual(item['address'], report['evidence'][ordinal]['address'])
+        self.assertTrue(set(imports) <= {item['text'] for item in context[:12]})
+        self.assertEqual(document['omitted']['context_strings'], 0)
+        self.assertEqual(json.dumps(report), before)
+        self.assertEqual(selection.evidence_ids, frozenset())
+        self.assertLessEqual(len(selection.text.encode()), 12000)
+
+    def test_context_omissions_count_only_unique_nonblank_eligible_observations(self):
+        report = support.report()
+        report.update(findings=[], functions=[], scripts=[], ioc_candidates=[])
+        literals = ['', '  ', 'same', 'same'] + [f'TEST DATA ONLY unique {index}' for index in range(40)]
+        report['evidence'] = [None] + [{'id': f's0:str:{index}', 'slice': 0, 'address': hex(0x100000000 + index),
+                                      'text': text} for index, text in enumerate(literals)]
+        document = json.loads(select(report, SAMPLE, 'pt-BR', 40000).text)
+        coverage = document['coverage']['strings']
+        self.assertEqual(coverage['context_eligible'], 41)
+        self.assertEqual(coverage['context_selected'], 24)
+        self.assertEqual(document['omitted']['context_strings'], 17)
+        same = next(item for item in document['context_strings'] if item['text'] == 'same')
+        self.assertEqual(same['inventory_ordinal'], 3)
+
+    def test_baseline_pseudocode_cannot_crowd_out_all_inventory_context(self):
+        report = support.report(pseudocode_chars=6000)
+        report.update(findings=[], scripts=[], ioc_candidates=[])
+        for function in report['functions']:
+            function['finding_ids'] = []
+        report['evidence'][0]['text'] = 'TEST DATA ONLY NSPasteboard generalPasteboard'
+        selection = select(report, SAMPLE, 'pt-BR', 12000)
+        document = json.loads(selection.text)
+        self.assertTrue(document['functions'])
+        self.assertTrue(document['context_strings'])
+        self.assertIn('NSPasteboard', document['context_strings'][0]['text'])
+        self.assertEqual(selection.evidence_ids, frozenset())
+        self.assertLessEqual(len(selection.text.encode()), 12000)
+
 
 
 
@@ -156,6 +272,86 @@ class YaraAndTermsTests(unittest.TestCase):
         document = json.loads(selection.text)
         self.assertEqual((document['yara']['rule'], document['yara']['rule_truncated']), (None, False))
         self.assertLessEqual(len(selection.text.encode()), 4000)
+
+
+class CodeContextTests(unittest.TestCase):
+    def selected_function(self, source, **metadata):
+        report = support.report()
+        function = report['functions'][0]
+        function.update(pseudocode=source, finding_ids=[], **metadata)
+        report.update(findings=[], evidence=[], functions=[function], scripts=[], ioc_candidates=[])
+        before = json.dumps(report)
+        selection = select(report, SAMPLE, 'pt-BR', 14000)
+        self.assertIsNotNone(selection)
+        self.assertLessEqual(len(selection.text.encode()), 14000)
+        self.assertEqual(json.dumps(report), before)
+        return json.loads(selection.text)['functions'][0]
+
+    def test_late_clipboard_and_dynamic_calls_reach_the_ai_with_exact_offsets(self):
+        source = ('int main(void) { /* TEST DATA */\n' + 'x' * 6500 +
+                  '\nvalue = pbpaste(); handle = dlopen("TEST LIBRARY", 0);\n' + 'y' * 6500 +
+                  '\n/* TEST DATA */ pbcopy(value); return 0; }')
+        selected = self.selected_function(source)
+        self.assertNotIn('pbpaste', selected['pseudocode'])
+        excerpts = selected['pseudocode_excerpts']
+        self.assertTrue(any('pbpaste' in item['text'] for item in excerpts))
+        self.assertTrue(any('dlopen' in item['text'] for item in excerpts))
+        self.assertTrue(any('pbcopy' in item['text'] for item in excerpts))
+        self.assertTrue(selected['pseudocode_truncated'])
+        self.assertEqual(selected['pseudocode_character_count'], len(source))
+        previous = len(selected['pseudocode'])
+        retained = len(selected['pseudocode'])
+        for item in excerpts:
+            self.assertGreaterEqual(item['start_character'], previous)
+            self.assertEqual(item['text'], source[item['start_character']:item['end_character']])
+            previous = item['end_character']
+            retained += len(item['text'])
+        self.assertLessEqual(retained, PSEUDOCODE_CHARS)
+
+    def test_unicode_text_preserves_the_signal_location(self):
+        source = '/* ' + '\u0130' * 6000 + ' */\nNSPasteboard_generalPasteboard();\n' + 'z' * 6000
+        selected = self.selected_function(source)
+        excerpt = next(item for item in selected['pseudocode_excerpts'] if 'NSPasteboard' in item['text'])
+        self.assertLessEqual(excerpt['start_character'], source.index('NSPasteboard'))
+        self.assertGreater(excerpt['end_character'], source.index('NSPasteboard'))
+        self.assertEqual(excerpt['text'], source[excerpt['start_character']:excerpt['end_character']])
+
+    def test_long_code_without_named_apis_keeps_the_ending_and_marks_omissions(self):
+        source = 'int main(void) {\n' + 'x' * 8000 + '\nreturn 4242; }'
+        selected = self.selected_function(source)
+        self.assertTrue(selected['pseudocode_truncated'])
+        self.assertIn('return 4242;', selected['pseudocode_excerpts'][-1]['text'])
+        self.assertLess(sum(len(item['text']) for item in selected['pseudocode_excerpts']) +
+                        len(selected['pseudocode']), len(source))
+
+    def test_short_code_stays_complete_and_missing_call_coverage_stays_unknown(self):
+        source = 'int main(void) { return 0; }'
+        selected = self.selected_function(source)
+        self.assertEqual(selected['pseudocode'], source)
+        self.assertEqual(selected['pseudocode_excerpts'], [])
+        self.assertFalse(selected['pseudocode_truncated'])
+        self.assertIsNone(selected['callees_omitted'])
+        self.assertIsNone(selected['unresolved_call_count'])
+
+    def test_review_call_targets_keep_a_slot_with_bounded_callee_context(self):
+        calls = [{'address': hex(0x100001000 + index), 'name': f'context_{index}'} for index in range(40)]
+        calls += [{'address': 'EXTERNAL:0x10', 'name': '_dlopen'}, {'address': 'EXTERNAL:0x20', 'name': '_dlsym'}]
+        calls += [{'address': f'EXTERNAL:0x{index}', 'name': name}
+                  for index, name in enumerate(('_system', '_send', '_strcmp'), 30)]
+        selected = self.selected_function('int main(void) { return 0; }', direct_calls=calls,
+                                          unresolved_calls=[{'address': '0x100000240'}])
+        self.assertEqual(len(selected['callees']), 16)
+        self.assertEqual(selected['callees_omitted'], 29)
+        self.assertEqual(selected['unresolved_call_count'], 1)
+        self.assertEqual({item['name'] for item in selected['callees'][:5]},
+                         {'_dlopen', '_dlsym', '_system', '_send', '_strcmp'})
+
+    def test_unresolved_calls_stay_observed_when_resolved_call_coverage_is_unknown(self):
+        selected = self.selected_function('int main(void) { return 0; }', direct_calls=None,
+                                          unresolved_calls=[{'address': '0x100000240'}])
+        self.assertIsNone(selected['callees_omitted'])
+        self.assertEqual(selected['unresolved_call_count'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()

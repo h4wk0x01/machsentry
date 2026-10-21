@@ -15,6 +15,25 @@ from .rea_client import ReaOptions, ReaSession, make_client
 from .source import AnalysisError, Limits, Source
 
 
+BASELINE_FUNCTIONS = 8
+CALLEE_FUNCTIONS = 8
+CAPABILITY_STRINGS = 16
+DATA_REFERENCE_DEPTH = 2
+_REVIEW_APIS = {
+    'dlopen': 0, 'dlsym': 0, 'objc_getClass': 0, 'sel_registerName': 0,
+    'NSClassFromString': 0, 'NSSelectorFromString': 0,
+    'PasteboardCopyItemFlavorData': 1, 'PasteboardPutItemFlavor': 1,
+    'popen': 1, 'system': 1, 'posix_spawn': 1, 'posix_spawnp': 1, 'execve': 1, 'execvp': 1,
+    'sysctl': 2, 'ptrace': 2, 'proc_pidpath': 2, 'dyld_image_count': 2,
+    'dyld_get_image_name': 2, 'mach_absolute_time': 2, 'mach_timebase_info': 2,
+}
+
+
+def _internal_procedure(row):
+    metadata = row.get('procedure', {})
+    return not (metadata.get('external') or metadata.get('thunk') or ':' in row['address'])
+
+
 def value(evidence):
     return evidence['normalized_result']
 
@@ -243,10 +262,23 @@ async def _analyze_slice(session, source, info, limits, options):
     evidence_findings = {}
     for finding in findings:
         finding['rea_evidence_ids'] = [eid(inventory)]
-        for identifier in finding['evidence_ids']:
+        identifiers = finding['evidence_ids'] if finding['weight'] else finding['evidence_ids'][:CAPABILITY_STRINGS]
+        for identifier in identifiers:
             evidence_findings.setdefault(identifier, []).append(finding)
     candidates, examined_references = {}, 0
     reference_limit = False
+    containment_cache, xref_cache = {}, {}
+
+    async def containing_at(address):
+        if address not in containment_cache:
+            containment_cache[address] = await session.call('resolve_containing_procedure', {'address': address}, required=False)
+        return containment_cache[address]
+
+    async def references_to(address):
+        if address not in xref_cache:
+            xref_cache[address] = await session.call('xrefs', {'address': address}, required=False)
+        return xref_cache[address]
+
     for record in strings:
         if record['id'] not in evidence_findings:
             continue
@@ -256,36 +288,101 @@ async def _analyze_slice(session, source, info, limits, options):
             literal = record['text'].encode(record['encoding'])
             record['yara_eligible'] = (offset + len(literal) <= info['file_offset'] + info['size_bytes']
                                        and source.data[offset:offset + len(literal)] == literal)
-        xrefs = await session.call('xrefs', {'address': record['address']}, required=False)
-        if xrefs is None:
-            continue
-        for address in value(xrefs):
+        # A selector or constant may be referenced through data before reaching code.
+        # REA owns every edge; retain the path rather than interpreting Mach-O pointers.
+        pending, seen = [(record['address'], [])], {record['address']}
+        while pending:
+            target_address, path = pending.pop(0)
+            xrefs = await references_to(target_address)
+            if xrefs is None:
+                continue
+            for address in value(xrefs):
+                if examined_references >= limits.max_references:
+                    reference_limit = True
+                    break
+                examined_references += 1
+                containing = await containing_at(address)
+                edge = {'source_address': address, 'target_address': target_address,
+                        'xref_evidence_id': eid(xrefs)}
+                if containing is None:
+                    continue
+                if not value(containing)['found']:
+                    if len(path) < DATA_REFERENCE_DEPTH and address not in seen:
+                        seen.add(address)
+                        pending.append((address, [edge, *path]))
+                    continue
+                procedure = value(containing)['procedure']
+                candidate = candidates.setdefault(procedure['address'], {
+                    'procedure': procedure, 'references': [], 'findings': {}, 'selection_reasons': []})
+                candidate['findings'].update({finding['id']: finding for finding in evidence_findings[record['id']]})
+                candidate['selection_reasons'].append('indicator_reference')
+                candidate['references'].append({'evidence_id': record['id'], 'instruction_address': address,
+                    'target_address': record['address'], 'xref_evidence_id': eid(xrefs),
+                    'containment_evidence_id': eid(containing), 'reference_path': [edge, *path]})
             if examined_references >= limits.max_references:
                 reference_limit = True
                 break
-            examined_references += 1
-            containing = await session.call('resolve_containing_procedure', {'address': address}, required=False)
-            if containing is None or not value(containing)['found']:
-                continue
-            procedure = value(containing)['procedure']
-            candidate = candidates.setdefault(procedure['address'], {'procedure': procedure, 'references': [], 'findings': {}})
-            candidate['findings'].update({finding['id']: finding for finding in evidence_findings[record['id']]})
-            candidate['references'].append({'evidence_id': record['id'], 'instruction_address': address,
-                                           'target_address': record['address'], 'xref_evidence_id': eid(xrefs),
-                                           'containment_evidence_id': eid(containing)})
         if reference_limit:
             break
+    procedures_evidence = await session.call('list_procedures', required=False)
+    procedures = value(procedures_evidence) if procedures_evidence else []
+    internal = {row['address']: row for row in procedures if _internal_procedure(row)}
+
+    def seed(address, reason):
+        row = internal.get(address)
+        if row is None:
+            return
+        candidate = candidates.setdefault(address, {
+            'procedure': {'address': address, 'name': row['value'], 'classification': None,
+                          'body': {'available': False, 'ranges': []}},
+            'references': [], 'findings': {}, 'selection_reasons': []})
+        candidate['selection_reasons'].append(reason)
+
+    # Inspect executable code even when the initial heuristics have no finding.
+    # API callers and baseline procedures are observations, with zero added risk.
+    api_procedures = sorted((row for row in procedures if row['value'].lstrip('_') in _REVIEW_APIS),
+                            key=lambda row: (_REVIEW_APIS[row['value'].lstrip('_')], row['address']))
+    for row in api_procedures[:BASELINE_FUNCTIONS]:
+        callers = await session.call('procedure_callers', {'procedure': row['address']}, required=False)
+        for address in (value(callers) if callers else [])[:BASELINE_FUNCTIONS]:
+            seed(address, 'sensitive_api_caller')
+    baseline = sorted(internal.values(), key=lambda row: (row['value'].lstrip('_') not in ('main', 'start', 'entry'), row['address']))
+    for row in baseline[:BASELINE_FUNCTIONS]:
+        seed(row['address'], 'baseline_code_review')
     functions = []
-    for address, candidate in list(candidates.items())[:options.max_decompiled_functions]:
+    review = sorted((address for address, candidate in candidates.items()
+                     if any(reason in candidate['selection_reasons'] for reason in ('baseline_code_review', 'sensitive_api_caller'))),
+                    key=lambda address: (
+                        candidates[address]['procedure']['name'].lstrip('_') not in ('main', 'start', 'entry'),
+                        'sensitive_api_caller' not in candidates[address]['selection_reasons'], address))
+    reserved = review[:min(BASELINE_FUNCTIONS, options.max_decompiled_functions)]
+    queue = reserved + sorted((address for address in candidates if address not in reserved),
+                              key=lambda address: -sum(f['weight'] for f in candidates[address]['findings'].values()))
+    callee_count = 0
+    attempted, inspection_failures = 0, 0
+    for address in queue:
+        if attempted >= options.max_decompiled_functions:
+            break
+        attempted += 1
+        candidate = candidates[address]
         dossier_evidence = await session.call('analyze_function', {'procedure': address}, required=False)
         dossier = value(dossier_evidence) if dossier_evidence else None
+        if dossier and dossier['procedure']['address'] != address:
+            raise AnalysisError('rea_contract_error', 'Function dossier identity differs from selected procedure')
+        if dossier is None:
+            inspection_failures += 1
+        if dossier is None and not candidate['procedure']['body']['available']:
+            continue
         procedure = dossier['procedure'] if dossier else candidate['procedure']
         function = {'slice': info['index'], 'architecture': info['architecture'], 'address': procedure['address'],
                     'names': [procedure['name']], 'body': procedure['body'], 'boundary_basis': ['REA provider body ranges'],
                     'end_upper_bound': None, 'file_offset': None, 'references': [],
-                    'finding_ids': sorted(candidate['findings']), 'classification': 'suspected_behavior_related',
+                    'finding_ids': sorted(candidate['findings']),
+                    'classification': 'suspected_behavior_related' if any(f['weight'] for f in candidate['findings'].values()) else 'review_context',
+                    'selection_reasons': sorted(set(candidate['selection_reasons'])),
                     'rea_evidence_id': eid(dossier_evidence) if dossier_evidence else None,
-                    'direct_calls': dossier['callees'] if dossier else [],
+                    'direct_calls': dossier['callees'] if dossier else None,
+                    'unresolved_calls': dossier.get('unresolved_calls') if dossier else None,
                     'pseudocode': dossier['pseudocode'] if dossier else None,
                     'assembly': dossier['assembly'] if dossier else [],
                     'facet_availability': dossier.get('facet_availability', {}) if dossier else {},
@@ -296,6 +393,8 @@ async def _analyze_slice(session, source, info, limits, options):
                 finding['function_addresses'].append(address)
             finding['confidence'] = 'medium_with_provider_code_references'
             finding['rea_evidence_ids'].extend(ref['xref_evidence_id'] for ref in candidate['references'])
+            finding['rea_evidence_ids'].extend(edge['xref_evidence_id'] for ref in candidate['references']
+                                              for edge in ref.get('reference_path', []))
             finding['rea_evidence_ids'] = sorted(set(finding['rea_evidence_ids']))
         body = procedure['body']
         if body.get('available') and len(body['ranges']) == 1 and body['ranges'][0]['start'] == address:
@@ -312,7 +411,7 @@ async def _analyze_slice(session, source, info, limits, options):
                                          'mapping_evidence_id': mapping_id, 'bytes_evidence_id': eid(memory)})
         for reference in candidate['references']:
             ref = {**reference, 'kind': 'provider_static_reference'}
-            if function['opcode_bytes_verified']:
+            if function['opcode_bytes_verified'] and len(reference.get('reference_path', [])) == 1:
                 instruction = await session.call('inspect_native_instruction', {'address': reference['instruction_address']}, required=False)
                 if instruction and value(instruction)['status'] == 'decoded':
                     decoded = value(instruction)
@@ -324,14 +423,24 @@ async def _analyze_slice(session, source, info, limits, options):
                                     'file_offset': function['file_offset'] + int(ref['instruction_address'], 16) - int(address, 16)})
             function['references'].append(ref)
         functions.append(function)
+        if dossier:
+            for callee in dossier['callees']:
+                child = callee['address']
+                if child in internal and child not in candidates and callee_count < CALLEE_FUNCTIONS:
+                    seed(child, 'direct_callee')
+                    queue.append(child)
+                    callee_count += 1
     return {'strings': strings, 'findings': findings, 'functions': functions,
             'coverage': {'string_inventory_count': len(rows), 'strings_retained': len(strings),
                          'strings_complete_over_provider_inventory': len(rows) == len(strings),
                          'candidate_functions': len(candidates), 'functions_inspected': len(functions),
+                         'functions_attempted': attempted, 'function_inspection_failures': inspection_failures,
+                         'procedure_inventory_count': len(internal) if procedures_evidence else None,
+                         'functions_not_selected': max(0, len(internal) - len(candidates)) if procedures_evidence else None,
                          'functions_omitted': max(0, len(candidates) - len(functions)),
                          'references_examined': examined_references, 'reference_budget_exhausted': reference_limit,
                          'pseudocode_available': sum(bool(function['pseudocode']) for function in functions),
-                         'selection': 'Functions containing REA references to configured behavior indicators'}}
+                         'selection': 'REA indicator references, API callers, baseline procedures and bounded direct callees'}}
 
 
 def _remove_owned_files(owned, cleanup):
