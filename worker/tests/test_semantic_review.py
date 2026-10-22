@@ -180,25 +180,28 @@ class SemanticReviewTests(unittest.TestCase):
     def test_inconclusive_chunks_cannot_be_erased_by_negative_synthesis(self):
         result, _ = self.run_stage(code_report(['indirect_unknown();']),
                                   ScriptedModel(batch_verdict='inconclusive', final_verdict=BENIGN))
-        self.assertEqual(result.status, 'invalid')
-        self.assertEqual(result.error_code, 'negative_verdict_coverage')
-        self.assertFalse(result.review['synthesis_validated'])
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(result.review['verdict'], 'inconclusive')
+        self.assertTrue(result.review['synthesis_validated'])
+        self.assertTrue(result.review['gaps'])
 
     def test_negative_requires_complete_provider_inventory_and_available_pseudocode(self):
         for report in (code_report(['return 0;'], provider_count=4), code_report(['return 0;', None])):
             with self.subTest(report=report):
                 result, _ = self.run_stage(report, ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
-                self.assertEqual(result.status, 'invalid')
-                self.assertEqual(result.error_code, 'negative_verdict_coverage')
-                self.assertIsNone(result.output)
+                self.assertEqual(result.status, 'completed')
+                self.assertEqual(result.review['verdict'], 'inconclusive')
+                self.assertTrue(result.review['synthesis_validated'])
+                self.assertTrue(result.review['gaps'])
 
     def test_negative_requires_no_material_gaps_or_positive_chunk(self):
         for verdict, gaps in ((BENIGN, ('The branch target requires its missing caller.',)), ('suspicious', ())):
             with self.subTest(verdict=verdict):
                 result, _ = self.run_stage(code_report(['conditional_send();']),
                                           ScriptedModel(batch_verdict=verdict, final_verdict=BENIGN, gaps=gaps))
-                self.assertEqual(result.error_code, 'negative_verdict_coverage')
-                self.assertFalse(result.review['synthesis_validated'])
+                self.assertEqual(result.review['verdict'], 'inconclusive')
+                self.assertTrue(result.review['synthesis_validated'])
+                self.assertTrue(result.review['gaps'])
 
     def test_max_calls_leaves_one_for_synthesis_and_preserves_partial_coverage(self):
         # Keep the verified-review inventory small enough for synthesis so this test
@@ -242,7 +245,8 @@ class SemanticReviewTests(unittest.TestCase):
         result, model = self.run_stage(code_report(['return 0;'] * 9),
                                       ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
         self.assertEqual(len(model.requests), 2)
-        self.assertEqual(result.error_code, 'negative_verdict_coverage')
+        self.assertEqual(result.review['verdict'], 'inconclusive')
+        self.assertTrue(result.review['synthesis_validated'])
         self.assertEqual(result.review['coverage']['reviewed_functions'], 4)
 
     def test_reservation_denial_never_calls_model(self):
@@ -367,7 +371,7 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(proof['start_character'], code.index(quote))
         self.assertEqual(code[proof['start_character']:proof['end_character']], quote)
 
-    def test_synthesis_must_reuse_exact_previously_verified_quote_and_chunk(self):
+    def test_synthesis_must_use_a_reviewed_chunk_and_literal_source(self):
         for mutation in ('quote', 'chunk'):
             with self.subTest(mutation=mutation):
                 def mutate(value, document, synthesis, index):
@@ -378,6 +382,28 @@ class SemanticReviewTests(unittest.TestCase):
                 self.assertEqual(result.status, 'invalid')
                 self.assertEqual(result.error_code, 'invalid_synthesis')
                 self.assertIsNone(result.output)
+
+    def test_synthesis_can_choose_another_literal_quote_from_supplied_reviewed_code(self):
+        code = '/* 😀 */ prepare();\nsend(secret);'
+        def mutate(value, document, synthesis, index):
+            if synthesis:
+                value['classification']['evidence'][0]['quote'] = 'send(secret);'
+        result, _ = self.run_stage(code_report([code]), ScriptedModel(quote='prepare();', mutate=mutate))
+        self.assertEqual(result.status, 'completed')
+        proof = result.review['evidence'][0]
+        self.assertEqual(proof['text'], 'send(secret);')
+        self.assertEqual(proof['start_character'], code.index('send(secret);'))
+        self.assertEqual(code[proof['start_character']:proof['end_character']], proof['text'])
+
+    def test_synthesis_cannot_cite_unsupplied_context_even_inside_a_reviewed_chunk(self):
+        code = 'return 0;\n' + ('a' * 6500) + 'HIDDEN_MIDDLE_LITERAL' + ('b' * 6500)
+        def mutate(value, document, synthesis, index):
+            if synthesis:
+                self.assertNotIn('HIDDEN_MIDDLE_LITERAL', json.dumps(document['engine_context']))
+                value['classification']['evidence'][0]['quote'] = 'HIDDEN_MIDDLE_LITERAL'
+        result, _ = self.run_stage(code_report([code]), ScriptedModel(quote='return 0;', mutate=mutate))
+        self.assertEqual(result.error_code, 'invalid_synthesis')
+        self.assertFalse(result.review['synthesis_validated'])
 
     def test_positive_batch_requires_a_source_quote(self):
         def mutate(value, document, synthesis, index):

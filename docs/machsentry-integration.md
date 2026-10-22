@@ -558,7 +558,7 @@ Limits: 12 calls, 40k conservative input tokens/call, 6k first output, 16k outpu
 US$ 0.10/job, US$ 0.75/account/month, US$ 5/day and US$ 40/month globally. Free jobs
 remain bounded by their shared quota. See Unpacked docs/ANALYSIS-CODE-REVIEW.md.
 
-Local evidence: 73 static tests and 210 worker tests pass (one platform skip in
+Local evidence: 73 static tests and 212 worker tests pass (one platform skip in
 each suite). An inert 40-function fixture improved from 16 to 40 decompiled functions;
 28.142 to 32.275 seconds, one Windows measurement per version. Paid model regression
 and AWS acceptance are recorded separately after execution. The opt-in
@@ -607,3 +607,13 @@ immediately. Tests verify the distinction and unchanged paid-call counts.
 The opt-in evaluation can replay an explicitly identified retained inert Ghidra
 report, preserving native pseudocode and provider context without another upload
 or another student credit. Operator costs still enter the shared service ledger.
+
+Synthesis citations can select a new exact quote from code supplied to that
+request. The quote must also belong to a previously reviewed chunk; architecture,
+full-source digest and original Unicode offsets remain verified. Invented quotes
+and code omitted from the synthesis context are rejected. Validated responses
+with unresolved coverage/context retain an inconclusive verdict and their gaps,
+instead of reporting an unfinished AI stage. Negative verdicts still require full
+inventory review, routine per-function verdicts and resolved gaps. Routine
+constant-return helpers are identified in the prompt as code whose caller can
+be unnecessary for interpreting its implemented effects.

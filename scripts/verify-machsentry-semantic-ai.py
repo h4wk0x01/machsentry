@@ -204,10 +204,15 @@ def main():
               for item in (result.review or {}).get('functions', [])}
     cases = [{'name': name, 'architecture': architecture, 'address': address, 'expected': verdict,
               'actual': actual.get((architecture, address))} for architecture, address, name, verdict in expected]
-    verified = result.status == 'completed' and all(row['actual'] == row['expected'] for row in cases)
+    expected_verdict = 'no_malicious_behavior_observed' if args.inert_provider_report else 'malicious'
+    verified = (result.status == 'completed' and all(row['actual'] == row['expected'] for row in cases)
+                and (result.review or {}).get('verdict') == expected_verdict
+                and (result.review or {}).get('synthesis_validated') is True)
     summary = {'verified': verified, 'scope': scope,
                'model': MODEL, 'elapsed_seconds': round(time.monotonic() - start, 3), 'cases': cases,
                'status': result.status, 'code': result.error_code, 'calls': len(result.calls),
+               'expected_verdict': expected_verdict, 'verdict': (result.review or {}).get('verdict'),
+               'synthesis_validated': (result.review or {}).get('synthesis_validated'),
                'input_tokens': result.input_tokens, 'output_tokens': result.output_tokens, 'cost_micros': result.cost_micros,
                'coverage': (result.review or {}).get('coverage')}
     (args.output / 'verification.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')

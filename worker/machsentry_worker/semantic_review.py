@@ -71,14 +71,17 @@ def instructions(locale, *, synthesis=False):
             'Return exactly one result for EVERY requested chunk_id, with its exact source_sha256. '
             'Read all code in the chunk, including the end. A partition can lack its caller or continuation: '
             'record that gap when it affects interpretation. Summarize behavior beyond familiar malware strings. '
+            'A missing caller is material when visible operations leave a concrete harmful flow unresolved. '
+            'Routine constant-return helpers can be understood without a caller; keep gaps empty in that case. '
             'Identify legitimate counter-evidence. Avoid assuming a missing operation exists elsewhere. '
             'Evidence quote must occur verbatim inside this chunk. Use at most 2 quotes per chunk. '
         )
     return base + (
         'This is an independent synthesis and challenge of earlier reviews. Their assertions are hypotheses. '
         'Compare them with the exact source quotes and available call context, find contradictions and consider '
-        'legitimate alternatives before choosing the final classification. Cite only (chunk_id, quote) pairs '
-        'from verified_reviews.evidence, copied exactly. Your own statement explains that code. '
+        'legitimate alternatives before choosing the final classification. Cite a chunk_id from verified_reviews '
+        'and an exact quote from its evidence or the matching engine_context pseudocode/excerpts. '
+        'The quote must belong to that reviewed chunk. Your own statement explains that code. '
         'Use no_malicious_behavior_observed only with full inventory/code review, zero synthesis_omissions, no unresolved material gaps '
         'and no suspicious or malicious per-function results. Otherwise choose inconclusive unless exact '
         'code supports a positive harmful verdict. Confidence describes evidence strength, not a probability. '
@@ -363,13 +366,39 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
             or base['provider_context']['context_omitted']
             or any(item['verdict'] != 'no_malicious_behavior_observed'
                                                                      for item in functions)):
-        # A second pass cannot erase missing code or a concrete unresolved harmful flow.
-        result.error_code = coverage['stopped_reason'] = 'negative_verdict_coverage'
-        return result
+        # The response and its source quotes are valid, while a safe classification
+        # still lacks support. Preserve the completed review as inconclusive.
+        verdict = 'inconclusive'
+        classification['confidence'] = 'low'
+        classification['rationale'] = (
+            'As lacunas abaixo precisam ser resolvidas para concluir a classificação do código.'
+            if claim.locale == 'pt-BR' else
+            'The gaps below need to be resolved before the code can be classified.')
+        if not gaps:
+            if not coverage['all_inventory_code_reviewed']:
+                inventory = coverage['provider_functions']
+                gaps = [(f'A revisão completa cobriu {coverage["reviewed_functions"]} funções; '
+                         f'o inventário do provedor contém {inventory if inventory is not None else "uma quantidade desconhecida de"} funções.')
+                        if claim.locale == 'pt-BR' else
+                        (f'The review covered {coverage["reviewed_functions"]} functions; '
+                         f'the provider inventory contains {inventory if inventory is not None else "an unknown number of"} functions.')]
+            else:
+                unresolved = sum(item['verdict'] != 'no_malicious_behavior_observed' for item in functions)
+                if unresolved:
+                    gaps = [(f'{unresolved} funções têm parecer inconclusivo ou suspeito na revisão individual.')
+                            if claim.locale == 'pt-BR' else
+                            (f'{unresolved} functions have inconclusive or suspicious individual assessments.')]
+                else:
+                    context_lost = base['provider_context']['context_omitted'] + base['provider_context']['pseudocode_unavailable']
+                    gaps = [(f'A síntese recebeu contexto incompleto em {context_lost} funções, '
+                             f'{omissions["summaries_shortened"]} resumos reduzidos e {omissions["quotes_omitted"]} citações omitidas.')
+                            if claim.locale == 'pt-BR' else
+                            (f'The synthesis received incomplete context for {context_lost} functions, '
+                             f'{omissions["summaries_shortened"]} shortened summaries and {omissions["quotes_omitted"]} omitted quotes.')]
     result.review.update(verdict=verdict, confidence=classification['confidence'],
                          rationale=classification['rationale'], evidence=proofs,
                          counter_evidence=classification['counter_evidence'], gaps=gaps, synthesis_validated=True)
-    result.status, result.output = 'completed', output
+    result.status, result.output, result.error_code = 'completed', output, None
     return result
 
 
@@ -389,6 +418,13 @@ def validate_synthesis(value, reviews, selection, keys):
             or len(classification['evidence']) > 24):
         return None
     allowed = {(item['chunk_id'], proof['text']): proof for item in reviews for proof in item['proofs']}
+    chunks = {item['chunk_id']: item['source'] for item in reviews}
+    visible = {}
+    for item in json.loads(selection.text).get('functions', []):
+        key = (item.get('architecture'), item.get('address'))
+        visible[key] = ([item['pseudocode']] if isinstance(item.get('pseudocode'), str) else []) + [
+            excerpt['text'] for excerpt in item.get('pseudocode_excerpts', [])
+            if isinstance(excerpt, dict) and isinstance(excerpt.get('text'), str)]
     proofs = []
     for proof in classification['evidence']:
         if (not isinstance(proof, dict) or set(proof) != {'chunk_id', 'quote', 'statement'}
@@ -397,7 +433,17 @@ def validate_synthesis(value, reviews, selection, keys):
             return None
         source = allowed.get((proof['chunk_id'], proof['quote']))
         if source is None:
-            return None
+            chunk = chunks.get(proof['chunk_id'])
+            if chunk is None:
+                return None
+            offset = chunk['text'].find(proof['quote'])
+            supplied = visible.get((chunk['architecture'], chunk['address']), [])
+            if offset < 0 or not any(proof['quote'] in excerpt for excerpt in supplied):
+                return None
+            source = {key: chunk[key] for key in ('architecture', 'address', 'source_sha256')}
+            source.update(start_character=chunk['start_character'] + offset,
+                          end_character=chunk['start_character'] + offset + len(proof['quote']),
+                          text=proof['quote'])
         proofs.append({**source, 'statement': proof['statement']})
     if classification['verdict'] in ('malicious', 'suspicious') and not proofs:
         return None
