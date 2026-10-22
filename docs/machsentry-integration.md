@@ -589,7 +589,7 @@ the same 16k/job and US$ 0.10 ceilings. Contract tests cover 24 notes, absence o
 duplicate annotations and the final output reservation.
 
 Correction ea35a26039fe84f2c3daaf0c23498d5b89077493 was installed by SSM command
-53db82a3-6c62-4f89-9c75-91de96904030. Current image:
+53db82a3-6c62-4f89-9c75-91de96904030. That installation used image:
 sha256:f1bc5461fd21d1761028ea483f3ffaf7c51ceb1ea6fdfcbc1b23c1eaa5a4a4e4.
 The native verification passed in 113.291 seconds, with 193.932 CPU seconds
 and 1,260,630,016 peak resident bytes. Bootstrap took 634 seconds and ended
@@ -617,3 +617,24 @@ instead of reporting an unfinished AI stage. Negative verdicts still require ful
 inventory review, routine per-function verdicts and resolved gaps. Routine
 constant-return helpers are identified in the prompt as code whose caller can
 be unnecessary for interpreting its implemented effects.
+
+The retained native-code replay passed on d61c09e24668c60c4e30a079f89a0684d4e33a5c:
+24/24 functions, complete inventory review, three validated source quotations and
+a no_malicious_behavior_observed synthesis. Seven paid calls used 25,549 input
+and 7,383 output tokens, US$ 0.052387, in 46.428 seconds. The actual Unpacked
+adapter accepted the same assessment. The input was an operator-created inert
+universal Mach-O, extracted previously by production REA/Ghidra. This replay
+used retained code and no student credit; the two earlier service jobs and
+their partial results remain unchanged. Both paid replay rounds were entered
+in the shared service budget. Detailed receipts and the final deployed image
+are recorded in Unpacked's ANALYSIS-CODEX-HANDOFF.md.
+
+Final AWS installation of d61c09e24668c60c4e30a079f89a0684d4e33a5c passed:
+SSM 8aa19524-1ce5-4c80-b1f0-c1fa420b142b, active image
+sha256:48827ebbcad0799072609b776b057b7ae8983ab3816b6563ce0664fcda36d8f7.
+Bootstrap took 1,029 seconds; real REA/Ghidra verification took 116.485 seconds,
+199.089 CPU seconds and 1,237,880,832 peak resident bytes. The prior image is
+retained for rollback. Admissions reopened, instance stopped, CPU credits
+standard, worker mode active and maintenance tag removed. Operator installation
+time is recorded in the site's worker-hour ceiling. At 14:13 UTC the shared
+ledger recorded US$ 0.393440 AI/month, zero unknown calls and 7,940 worker seconds.
