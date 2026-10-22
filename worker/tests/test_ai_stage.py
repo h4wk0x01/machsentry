@@ -184,8 +184,10 @@ class AiStageTests(unittest.TestCase):
                 result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(sloppy))), second,
                                                 timeout=0.5)
                 self.assertEqual(len(openai.requests), 2)
+                status = 'usage_unknown' if second[0] == 'sleep' else 'completed'
+                error = 'timeout' if second[0] == 'sleep' else None
                 self.assertEqual((result.status, result.output, result.validation_errors, result.error_code),
-                                 ('completed', sloppy, [], None))
+                                 (status, sloppy, [], error))
 
     def test_a_writing_correction_is_skipped_when_the_budget_cannot_hold_the_rewrite(self):
         sloppy = support.valid_output()
@@ -358,8 +360,49 @@ class AiStageTests(unittest.TestCase):
         bad['gaps'] = ['']
         self.api = SiteApi(self.site.url, support.TOKEN, timeout=5, attempts=2, sleep=lambda _: None)
         result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(bad))))
-        self.assertEqual(result.status, 'invalid')
+        self.assertEqual((result.status, result.error_code), ('usage_unknown', 'usage_unknown'))
+        self.assertIsNone(result.output)
+        self.assertTrue(result.validation_errors)
         self.assertEqual(len(openai.requests), 1)
+
+    def test_settle_failure_preserves_valid_output_with_unknown_cost_and_stops(self):
+        self.site.respond('/jobs/:id/ai/settle', (503, None))
+        self.api = SiteApi(self.site.url, support.TOKEN, timeout=5, attempts=2, sleep=lambda _: None)
+        for summary in (support.valid_output()['summary'], 'A amostra pede senha.'):
+            with self.subTest(summary=summary):
+                output = support.valid_output()
+                output['summary'] = summary
+                result, openai = self.run_stage(('json', 200, support.response_body(json.dumps(output))))
+                self.assertEqual((result.status, result.error_code, result.output),
+                                 ('usage_unknown', 'usage_unknown', output))
+                self.assertEqual(len(openai.requests), 1)
+                self.assertEqual((result.input_tokens, result.output_tokens), (1200, 300))
+                self.assertIsNone(result.assessment()['calls'][0]['costMicros'])
+
+    def test_unsettled_correction_preserves_the_best_valid_output_as_usage_unknown(self):
+        self.site.respond('/jobs/:id/ai/settle', lambda body:
+                          (200, {'costMicros': 1009}) if body['callId'] == 'call_0' else (503, None))
+        self.api = SiteApi(self.site.url, support.TOKEN, timeout=5, attempts=2, sleep=lambda _: None)
+        for writing_only in (False, True):
+            for valid_second in (False, True):
+                with self.subTest(writing_only=writing_only, valid_second=valid_second):
+                    first = support.valid_output()
+                    if writing_only:
+                        first['summary'] = 'A amostra pede senha.'
+                    else:
+                        first['gaps'] = ['']
+                    second = support.valid_output()
+                    if not valid_second:
+                        second['gaps'] = ['']
+                    result, openai = self.run_stage(
+                        ('json', 200, support.response_body(json.dumps(first))),
+                        ('json', 200, support.response_body(json.dumps(second))))
+                    expected = second if valid_second else first if writing_only else None
+                    self.assertEqual((result.status, result.error_code, result.output),
+                                     ('usage_unknown', 'usage_unknown', expected))
+                    self.assertEqual(len(openai.requests), 2)
+                    self.assertEqual(result.cost_micros, 1009)
+                    self.assertEqual([call['costMicros'] for call in result.assessment()['calls']], [1009, None])
 
 
 if __name__ == '__main__':

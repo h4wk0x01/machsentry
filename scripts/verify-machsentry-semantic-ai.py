@@ -160,7 +160,7 @@ def main():
         'limits': {'staticSeconds': 1200, 'aiSeconds': 540, 'finalizeSeconds': 120, 'maxFunctions': 128,
                    'memoryBytes': 3 * 1024**3, 'pids': 256, 'diskBytes': 4 * 1024**3},
         'ai': {'model': MODEL, 'promptVersion': 'unpacked-analysis-ai-v5', 'maxCalls': 12,
-               'maxInputTokensPerCall': 40000, 'maxOutputTokensFirstCall': 4000, 'maxOutputTokensPerJob': 16000}})
+               'maxInputTokensPerCall': 40000, 'maxOutputTokensFirstCall': 6000, 'maxOutputTokensPerJob': 16000}})
     start = time.monotonic()
     trace_index = 0
 

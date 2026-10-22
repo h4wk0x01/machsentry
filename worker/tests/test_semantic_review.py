@@ -153,19 +153,19 @@ class SemanticReviewTests(unittest.TestCase):
     def test_each_chunk_and_settled_call_is_counted_and_no_input_exceeds_reservation(self):
         result, model = self.run_stage(code_report(['return 0;'] * 17))
         self.assertEqual(result.status, 'completed')
-        self.assertEqual(len(model.requests), 4)
+        self.assertEqual(len(model.requests), 6)
         self.assertEqual(result.review['coverage']['reviewed_chunks'], 17)
         self.assertEqual(result.review['coverage']['reviewed_functions'], 17)
         self.assertTrue(result.review['coverage']['all_inventory_code_reviewed'])
         self.assertEqual(len(result.calls), len(self.site.settlements))
-        self.assertEqual(result.cost_micros, 4 * 123)
-        self.assertEqual(result.output_tokens, 400)
+        self.assertEqual(result.cost_micros, 6 * 123)
+        self.assertEqual(result.output_tokens, 600)
         for reserve, body in zip(self.site.reservations, model.requests):
             self.assertLessEqual(reserve['input_tokens'], self.claim.ai['maxInputTokensPerCall'])
             schema_size = len(json.dumps(body['text']['format'], ensure_ascii=False, separators=(',', ':')).encode())
             self.assertEqual(reserve['input_tokens'], len(body['instructions'].encode())
                              + len(body['input'].encode()) + schema_size + 256)
-            self.assertLessEqual(reserve['output_tokens'], 4000)
+            self.assertLessEqual(reserve['output_tokens'], 6000)
             self.assertEqual(body['reasoning'], {'effort': 'medium'})
             self.assertFalse(body['store'])
             self.assertNotIn('tools', body)
@@ -211,7 +211,7 @@ class SemanticReviewTests(unittest.TestCase):
         result, model = self.run_stage(code_report(['return 0;'] * 96), ScriptedModel(mutate=concise))
         self.assertEqual(len(model.requests), 12)
         self.assertEqual(result.review['coverage']['stopped_reason'], 'max_calls')
-        self.assertEqual(result.review['coverage']['reviewed_functions'], 88)
+        self.assertEqual(result.review['coverage']['reviewed_functions'], 44)
         self.assertFalse(result.review['coverage']['all_captured_code_reviewed'])
         self.assertEqual(result.review['verdict'], 'inconclusive')
 
@@ -220,7 +220,7 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(len(model.requests), 4)
         self.assertEqual(result.output_tokens, 16000)
         self.assertEqual(result.review['coverage']['stopped_reason'], 'token_limit')
-        self.assertEqual(result.review['coverage']['reviewed_functions'], 24)
+        self.assertEqual(result.review['coverage']['reviewed_functions'], 12)
         self.assertFalse(result.review['coverage']['all_inventory_code_reviewed'])
 
     def test_synthesis_input_overflow_preserves_reviewed_facts_without_extra_call(self):
@@ -243,7 +243,7 @@ class SemanticReviewTests(unittest.TestCase):
                                       ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
         self.assertEqual(len(model.requests), 2)
         self.assertEqual(result.error_code, 'negative_verdict_coverage')
-        self.assertEqual(result.review['coverage']['reviewed_functions'], 8)
+        self.assertEqual(result.review['coverage']['reviewed_functions'], 4)
 
     def test_reservation_denial_never_calls_model(self):
         self.site.deny[0] = 'daily_budget'

@@ -244,7 +244,7 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
     prompt = instructions(claim.locale)
     schema = format_schema(BATCH_SCHEMA, 'unpacked_code_review_batch_v1')
     input_budget = grant['maxInputTokensPerCall'] - len(prompt.encode()) - len(schema.encode()) - RESERVATION_OVERHEAD
-    plan = plan_reviews(report, claim.sample, claim.locale, max(0, input_budget))
+    plan = plan_reviews(report, claim.sample, claim.locale, max(0, input_budget), max_chunks_per_batch=4)
     reviews, stopped, safe_to_call = [], None, True
     synthesis_tokens = min(4000, grant['maxOutputTokensFirstCall'], grant['maxOutputTokensPerJob'])
     for batch in plan.batches:
@@ -255,7 +255,7 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
         if available < 1600:
             stopped = 'token_limit'
             break
-        tokens = min(4000, available)
+        tokens = min(6000, available)
         if not result.calls:
             tokens = min(tokens, grant['maxOutputTokensFirstCall'])
         try:

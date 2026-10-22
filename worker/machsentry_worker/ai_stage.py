@@ -228,6 +228,12 @@ class AiStage:
             result.status = 'skipped_budget' if denied.reason in _BUDGET_REASONS else 'failed'
             result.error_code = denied.reason
             return result
+        if not settled:
+            result.status, result.error_code = 'usage_unknown', 'usage_unknown'
+            if first.outcome == 'succeeded' and first.refusal is None:
+                result.output, result.validation_errors = self._check(first, selection.evidence_ids,
+                                                                       selection.finding_ids, keys)
+            return result
         if first.outcome != 'succeeded':
             result.status, result.error_code = first.outcome if first.outcome == 'usage_unknown' else 'failed', first.error_code
             return result
@@ -249,7 +255,7 @@ class AiStage:
             result.status, result.validation_errors = 'invalid', errors
         first_tokens = (first.usage or {}).get('outputTokens', first_output)
         remaining = grant['maxOutputTokensPerJob'] - first_tokens
-        if not settled or grant['maxCalls'] < 2 or remaining < MIN_CORRECTION_OUTPUT_TOKENS:
+        if grant['maxCalls'] < 2 or remaining < MIN_CORRECTION_OUTPUT_TOKENS:
             return result
         previous = first.text or ''
         previous_fits = len(previous.encode()) <= MAX_PREVIOUS_OUTPUT_BYTES
@@ -271,14 +277,19 @@ class AiStage:
             input_text, max_output = prefix + retry.text + '}', remaining
             allowed = (retry.evidence_ids, retry.finding_ids)
         try:
-            second, _ = self._call(claim, result, 1, text, input_text, schema_text, max_output, deadline, cancelled)
+            second, settled = self._call(claim, result, 1, text, input_text, schema_text, max_output, deadline, cancelled)
         except _Denied as denied:
             if not writing_only:
                 result.error_code = denied.reason
             return result
-        if second.outcome == 'usage_unknown':
-            if not writing_only:
-                result.status, result.error_code = 'usage_unknown', second.error_code
+        if not settled or second.outcome == 'usage_unknown':
+            result.status, result.error_code = 'usage_unknown', second.error_code or 'usage_unknown'
+            if second.outcome == 'succeeded' and second.refusal is None:
+                output, errors = self._check(second, *allowed, keys)
+                if not errors:
+                    result.output, result.validation_errors = output, []
+                elif not writing_only:
+                    result.validation_errors = errors
             return result
         if second.outcome != 'succeeded' or second.refusal is not None or second.status not in ('completed', 'incomplete'):
             if not writing_only:
