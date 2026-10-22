@@ -325,6 +325,10 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
     final = validate_synthesis(value, allowed_reviews, selection, function_keys(report))
     if final is None:
         result.error_code = coverage['stopped_reason'] = 'invalid_synthesis'
+        result.validation_errors = [f'synthesis response status: {response.status}; reason: {response.incomplete_reason}']
+        if isinstance(value, dict):
+            result.validation_errors.extend(validate({key: item for key, item in value.items() if key != 'classification'},
+                                                     selection.evidence_ids, selection.finding_ids, function_keys(report)))
         return result
     output, classification, proofs = final
     gaps = list(dict.fromkeys(classification['gaps'] + [gap for item in reviews for gap in item['gaps']]))[:12]

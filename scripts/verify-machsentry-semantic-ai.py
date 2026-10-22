@@ -8,6 +8,7 @@ The ledger and assessment are private operator artifacts and must stay outside G
 """
 
 import argparse
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
@@ -17,6 +18,7 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'worker'))
 from machsentry_worker.ai_stage import AiStage
+from machsentry_worker import ai
 from machsentry_worker.config import Secret
 from machsentry_worker.job import parse_claim
 from machsentry_worker.site_api import SiteError
@@ -160,7 +162,17 @@ def main():
         'ai': {'model': MODEL, 'promptVersion': 'unpacked-analysis-ai-v5', 'maxCalls': 12,
                'maxInputTokensPerCall': 40000, 'maxOutputTokensFirstCall': 4000, 'maxOutputTokensPerJob': 16000}})
     start = time.monotonic()
-    result = AiStage(ledger, Secret(key), MODEL).run(claim, report, start + 540)
+    trace_index = 0
+
+    def traced_call(secret, body, **kwargs):
+        nonlocal trace_index
+        response = ai.call(secret, body, **kwargs)
+        (args.output / f'call-{trace_index}.json').write_text(
+            json.dumps({'request': body, 'response': asdict(response)}, ensure_ascii=False, indent=2), encoding='utf-8')
+        trace_index += 1
+        return response
+
+    result = AiStage(ledger, Secret(key), MODEL, call=traced_call).run(claim, report, start + 540)
     (args.output / 'ai-assessment.json').write_text(json.dumps(result.assessment(), ensure_ascii=False, indent=2), encoding='utf-8')
     actual = {item['address']: item['verdict'] for item in (result.review or {}).get('functions', [])}
     cases = [{'name': name, 'expected': expected, 'actual': actual.get(functions[index]['address'])}
