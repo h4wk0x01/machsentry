@@ -75,6 +75,14 @@ class JobTests(Harness):
             return 200, {'granted': True, 'callId': 'call_0'}
         self.site.respond('/jobs/:id/ai/reserve', reserve)
         supervisor = self.supervisor()
+        ai_run = supervisor.ai_stage.run
+
+        def bounded_ai(claim, report, deadline, cancelled):
+            self.assertGreater(deadline - supervisor.clock(), claim.limits['aiSeconds'] - 1)
+            self.assertLessEqual(deadline - supervisor.clock(), claim.limits['aiSeconds'])
+            return ai_run(claim, report, deadline, cancelled)
+
+        supervisor.ai_stage.run = bounded_ai
         self.assertTrue(supervisor.process(self.claim()))
         self.assertEqual(observed, {'jobs_empty': True, 'containers': {}})
         routes = [route for route in self.site.routes_called() if route != '/jobs/:id/heartbeat']

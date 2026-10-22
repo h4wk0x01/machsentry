@@ -18,20 +18,58 @@ class FunctionsJsonTests(unittest.TestCase):
         report = support.report(pseudocode_chars=70 * 1024)
         entries = json.loads(publish.functions_json(report))
         self.assertEqual(set(entries[0]), {'architecture', 'slice', 'address', 'names', 'findingIds', 'pseudocode',
-                                           'pseudocodeTruncated'})
+                                           'pseudocodeTruncated', 'pseudocodeSha256', 'pseudocodeCharacters'})
         self.assertTrue(all(len(item['pseudocode'].encode()) <= 64 * 1024 for item in entries))
         self.assertTrue(all(item['pseudocodeTruncated'] for item in entries))
+        for source, entry in zip(report['functions'], entries):
+            self.assertEqual(entry['pseudocodeSha256'], sha256(source['pseudocode'].encode('utf-8')).hexdigest())
+            self.assertEqual(entry['pseudocodeCharacters'], len(source['pseudocode']))
 
     def test_total_cap_lowers_the_per_function_cap(self):
         report = support.report(pseudocode_chars=70 * 1024)
         report['functions'] = report['functions'] * 10
         data = publish.functions_json(report)
         self.assertLessEqual(len(data), 4 * 1024 * 1024)
-        self.assertTrue(all(len(item['pseudocode'].encode()) <= 32 * 1024 for item in json.loads(data)))
+        entries = json.loads(data)
+        self.assertTrue(all(len(item['pseudocode'].encode()) <= 32 * 1024 for item in entries))
+        self.assertEqual(len(entries), len(report['functions']))
+        for source, entry in zip(report['functions'], entries):
+            self.assertEqual(entry['pseudocodeSha256'], sha256(source['pseudocode'].encode('utf-8')).hexdigest())
+            self.assertEqual(entry['pseudocodeCharacters'], len(source['pseudocode']))
 
     def test_utf8_cut_keeps_valid_text(self):
         text, truncated = publish._clip_utf8('é' * 10, 5)
         self.assertEqual((text, truncated), ('éé', True))
+
+    def test_unicode_prefix_keeps_the_digest_and_character_count_of_complete_code(self):
+        prefix = 'é' * (64 * 1024 // 2 - 1)
+        sources = [prefix + '🙂END_OF_SOURCE', prefix + '🙂DIFFERENT_END']
+        report = support.report()
+        report['functions'] = [dict(report['functions'][index], pseudocode=source)
+                               for index, source in enumerate(sources)]
+        entries = json.loads(publish.functions_json(report))
+        for source, entry in zip(sources, entries):
+            self.assertEqual(entry['pseudocode'], prefix)
+            self.assertTrue(entry['pseudocodeTruncated'])
+            self.assertEqual(entry['pseudocodeCharacters'], len(source))
+            self.assertEqual(entry['pseudocodeSha256'], sha256(source.encode('utf-8')).hexdigest())
+            self.assertNotEqual(entry['pseudocodeSha256'], sha256(prefix.encode('utf-8')).hexdigest())
+        self.assertNotEqual(entries[0]['pseudocodeSha256'], entries[1]['pseudocodeSha256'])
+
+    def test_missing_code_metadata_remains_unknown_and_empty_code_has_its_own_digest(self):
+        report = support.report()
+        report['functions'] = [dict(report['functions'][index], pseudocode=source)
+                               for index, source in enumerate((None, 7, ''))]
+        entries = json.loads(publish.functions_json(report))
+        for entry in entries[:2]:
+            self.assertIsNone(entry['pseudocode'])
+            self.assertIsNone(entry['pseudocodeSha256'])
+            self.assertIsNone(entry['pseudocodeCharacters'])
+            self.assertFalse(entry['pseudocodeTruncated'])
+        self.assertEqual(entries[2]['pseudocode'], '')
+        self.assertEqual(entries[2]['pseudocodeSha256'], sha256(b'').hexdigest())
+        self.assertEqual(entries[2]['pseudocodeCharacters'], 0)
+        self.assertFalse(entries[2]['pseudocodeTruncated'])
 
 
 class PublishTests(unittest.TestCase):
@@ -113,7 +151,7 @@ class PublishTests(unittest.TestCase):
 
     def test_size_caps(self):
         with self.assertRaises(PublishError):
-            publish.write(self.results, 'ai-assessment.json', b'x' * (256 * 1024 + 1))
+            publish.write(self.results, 'ai-assessment.json', b'x' * (1024 * 1024 + 1))
 
 
 if __name__ == '__main__':

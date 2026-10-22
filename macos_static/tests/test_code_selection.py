@@ -35,14 +35,22 @@ class DataReferenceRea(FakeRea):
 
 class RosterRea(FakeRea):
     """Several provider candidates, including an entry outside the string references."""
+    function_count = 10
+    entry_index = 9
+
     def procedure_at(self, address):
         return {**self.procedure, 'address': address,
-                'name': '_main' if address == hex(self.base + 512 + 9 * 16) else '_context',
+                'name': '_main' if address == hex(self.base + 512 + self.entry_index * 16) else '_context',
                 'body': {'available': False, 'ranges': []}}
 
     def inventory_rows(self):
         return [{'address': hex(self.base + 512 + index * 16),
-                 'value': '_main' if index == 9 else '_context'} for index in range(10)]
+                 'value': '_main' if index == self.entry_index else '_context'} for index in range(self.function_count)]
+
+    def dossier_at(self, address):
+        return {'procedure': self.procedure_at(address),
+                'pseudocode': '/* TEST DOUBLE */ void f(void) { return; }',
+                'assembly': [], 'callees': [], 'limitations': ['TEST DOUBLE'], 'facet_availability': {}}
 
     async def call_tool(self, operation, parameters):
         if operation == 'analyze_function' and self.fail_operation == operation:
@@ -55,9 +63,7 @@ class RosterRea(FakeRea):
             result = {'found': True, 'query_address': parameters['address'],
                       'procedure': self.procedure_at(parameters['address'])}
         elif operation == 'analyze_function':
-            result = {'procedure': self.procedure_at(parameters['procedure']),
-                      'pseudocode': '/* TEST DOUBLE */ void f(void) { return; }',
-                      'assembly': [], 'callees': [], 'limitations': ['TEST DOUBLE'], 'facet_availability': {}}
+            result = self.dossier_at(parameters['procedure'])
         else:
             return await super().call_tool(operation, parameters)
         self.calls.append((operation, parameters))
@@ -77,6 +83,48 @@ class DynamicCallerRea(RosterRea):
         if operation == 'procedure_callers':
             self.calls.append((operation, parameters))
             result = [hex(self.base + 512 + 8 * 16)]
+            return SimpleNamespace(is_error=False, structured_content=self.evidence(operation, parameters, result), content=[])
+        return await super().call_tool(operation, parameters)
+
+
+class WideRosterRea(RosterRea):
+    function_count = 80
+    entry_index = 79
+
+
+class GraphRosterRea(RosterRea):
+    function_count = 20
+    entry_index = 19
+
+    def dossier_at(self, address):
+        dossier = super().dossier_at(address)
+        index = (int(address, 16) - self.base - 512) // 16
+        if index:
+            dossier['callees'] = [self.procedure_at(hex(self.base + 512 + (index - 1) * 16))]
+        if index < self.function_count - 1:
+            dossier['callers'] = [self.procedure_at(hex(self.base + 512 + (index + 1) * 16))]
+        return dossier
+
+
+class DiverseApiRea(RosterRea):
+    function_count = 30
+    entry_index = 29
+    api_names = ('dlopen', 'dlsym', 'objc_getClass', 'sel_registerName', 'NSClassFromString',
+                 'NSSelectorFromString', 'popen', 'system', 'connect', 'socket',
+                 'SecItemCopyMatching', 'fopen')
+    caller_indices = (20, 20, 20, 20, 20, 20, 21, 21, 22, 22, 23, 24)
+
+    def inventory_rows(self):
+        return super().inventory_rows() + [
+            {'address': f'EXTERNAL:0x{index + 1:x}', 'value': '_' + name,
+             'procedure': {'external': True, 'thunk': False, 'thunk_target': None}}
+            for index, name in enumerate(self.api_names)]
+
+    async def call_tool(self, operation, parameters):
+        if operation == 'procedure_callers':
+            self.calls.append((operation, parameters))
+            index = int(parameters['procedure'].split(':')[1], 16) - 1
+            result = [hex(self.base + 512 + self.caller_indices[index] * 16)]
             return SimpleNamespace(is_error=False, structured_content=self.evidence(operation, parameters, result), content=[])
         return await super().call_tool(operation, parameters)
 
@@ -186,6 +234,80 @@ class CodeSelectionTests(unittest.TestCase):
         self.assertEqual(report['functions'][0]['names'], ['_main'])
         self.assertEqual(report['functions'][0]['finding_ids'], [])
         self.assertEqual(report['coverage']['slices'][0]['functions_attempted'], 1)
+
+    def test_no_known_strings_reviews_the_entire_roster_when_it_fits(self):
+        client = RosterRea()
+        client.function_count, client.entry_index = 13, 12
+        report = self.analyze_fixture(client)
+        self.assertEqual(report['findings'], [])
+        self.assertEqual(len(report['functions']), 13)
+        coverage = report['coverage']['slices'][0]
+        self.assertEqual(coverage['procedure_inventory_count'], 13)
+        self.assertEqual(coverage['functions_not_selected'], 0)
+        self.assertEqual(coverage['functions_not_attempted'], 0)
+        self.assertFalse(coverage['function_budget_exhausted'])
+        self.assertEqual(report['risk']['value'], 0)
+        self.assertEqual(report['yara']['status'], 'not_generated')
+
+    def test_full_inventory_uses_64_attempts_and_exposes_remaining_unknown_functions(self):
+        client = WideRosterRea()
+        report = self.analyze_fixture(client)
+        self.assertEqual(len(report['functions']), 64)
+        self.assertEqual(report['functions'][0]['names'], ['_main'])
+        coverage = report['coverage']['slices'][0]
+        self.assertEqual(coverage['candidate_functions'], 80)
+        self.assertEqual(coverage['functions_attempted'], 64)
+        self.assertEqual(coverage['functions_not_selected'], 16)
+        self.assertEqual(coverage['functions_not_attempted'], 16)
+        self.assertEqual(coverage['functions_omitted'], 16)
+        self.assertTrue(coverage['function_budget_exhausted'])
+        self.assertTrue(report['risk']['coverage_limited'])
+
+    def test_failed_full_inventory_attempts_do_not_expand_the_budget(self):
+        client = WideRosterRea(fail_operation='analyze_function')
+        report = self.analyze_fixture(client)
+        coverage = report['coverage']['slices'][0]
+        self.assertEqual(coverage['functions_attempted'], 64)
+        self.assertEqual(coverage['function_inspection_failures'], 64)
+        self.assertEqual(coverage['functions_not_selected'], 16)
+        self.assertEqual(report['functions'], [])
+        self.assertIsNone(report['risk']['value'])
+
+    def test_observed_call_graph_promotes_neighbors_beyond_the_previous_eight_callees(self):
+        client = GraphRosterRea()
+        report = self.analyze_fixture(client, options=ReaOptions(max_decompiled_functions=16))
+        self.assertEqual([f['address'] for f in report['functions']],
+                         [hex(client.base + 512 + index * 16) for index in range(19, 3, -1)])
+        self.assertTrue(all('provider_callee' in f['selection_reasons'] for f in report['functions'][1:]))
+        self.assertEqual(len({f['address'] for f in report['functions']}), 16)
+        retained = {record['evidence_id'] for record in report['rea']['records']}
+        self.assertTrue(all(source['evidence_id'] in retained
+                            for f in report['functions'] for source in f['selection_sources']))
+
+    def test_api_queries_interleave_classes_and_share_the_existing_budget(self):
+        client = DiverseApiRea()
+        report = self.analyze_fixture(client, options=ReaOptions(max_decompiled_functions=4))
+        queried = [parameters['procedure'] for operation, parameters in client.calls if operation == 'procedure_callers']
+        queried_names = [client.api_names[int(address.split(':')[1], 16) - 1] for address in queried]
+        self.assertEqual(queried_names, ['dlopen', 'popen', 'connect', 'SecItemCopyMatching'])
+        self.assertEqual(len(report['functions']), 4)
+        self.assertTrue(all('sensitive_api_caller' in f['selection_reasons'] for f in report['functions'][1:]))
+        coverage = report['coverage']['slices'][0]
+        self.assertEqual(coverage['api_caller_queries'], 4)
+        self.assertEqual(coverage['api_caller_queries_omitted'], 8)
+        self.assertEqual(coverage['functions_not_selected'], 26)
+        self.assertEqual(report['risk']['value'], 0)
+
+    def test_exhausted_reference_budget_still_allows_inventory_code_review(self):
+        client = DiverseApiRea()
+        report = self.analyze_fixture(client, limits=Limits(max_references=2),
+                                      options=ReaOptions(max_decompiled_functions=4))
+        coverage = report['coverage']['slices'][0]
+        self.assertEqual(coverage['references_examined'], 2)
+        self.assertTrue(coverage['reference_budget_exhausted'])
+        self.assertEqual(coverage['api_caller_queries'], 2)
+        self.assertEqual(coverage['functions_attempted'], 4)
+        self.assertTrue(any(f['selection_reasons'] == ['baseline_code_review'] for f in report['functions']))
 
 
 if __name__ == '__main__':

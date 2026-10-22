@@ -11,10 +11,10 @@ import re
 from .jobdir import JOB_ID
 
 _SHA256 = re.compile(r'^[a-f0-9]{64}$')
-LIMIT_CEILINGS = {'staticSeconds': 900, 'aiSeconds': 180, 'finalizeSeconds': 120, 'maxFunctions': 64,
+LIMIT_CEILINGS = {'staticSeconds': 1200, 'aiSeconds': 540, 'finalizeSeconds': 120, 'maxFunctions': 128,
                   'memoryBytes': 3 * 1024 ** 3, 'pids': 256, 'diskBytes': 4 * 1024 ** 3}
-AI_CEILINGS = {'maxCalls': 2, 'maxInputTokensPerCall': 40_000, 'maxOutputTokensFirstCall': 6_000,
-               'maxOutputTokensPerJob': 8_000}
+AI_CEILINGS = {'maxCalls': 12, 'maxInputTokensPerCall': 40_000, 'maxOutputTokensFirstCall': 6_000,
+               'maxOutputTokensPerJob': 16_000}
 
 
 class ClaimInvalid(Exception):

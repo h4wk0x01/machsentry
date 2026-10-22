@@ -402,7 +402,8 @@ class Supervisor:
             heartbeat.set_phase('ai_review')
             ai_started = self.clock()
             try:
-                ai_result = self.ai_stage.run(claim, report, deadline - limits['finalizeSeconds'],
+                ai_result = self.ai_stage.run(claim, report, min(deadline - limits['finalizeSeconds'],
+                                                                ai_started + limits['aiSeconds']),
                                               lambda: stop_reason() is not None)
             except LeaseLost:
                 raise

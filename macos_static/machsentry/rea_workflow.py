@@ -2,7 +2,9 @@
 
 from hashlib import sha256
 from dataclasses import dataclass
+from collections import deque
 import errno
+import heapq
 import os
 from pathlib import Path, PurePosixPath
 import stat
@@ -15,18 +17,45 @@ from .rea_client import ReaOptions, ReaSession, make_client
 from .source import AnalysisError, Limits, Source
 
 
-BASELINE_FUNCTIONS = 8
-CALLEE_FUNCTIONS = 8
 CAPABILITY_STRINGS = 16
 DATA_REFERENCE_DEPTH = 2
-_REVIEW_APIS = {
-    'dlopen': 0, 'dlsym': 0, 'objc_getClass': 0, 'sel_registerName': 0,
-    'NSClassFromString': 0, 'NSSelectorFromString': 0,
-    'PasteboardCopyItemFlavorData': 1, 'PasteboardPutItemFlavor': 1,
-    'popen': 1, 'system': 1, 'posix_spawn': 1, 'posix_spawnp': 1, 'execve': 1, 'execvp': 1,
-    'sysctl': 2, 'ptrace': 2, 'proc_pidpath': 2, 'dyld_image_count': 2,
-    'dyld_get_image_name': 2, 'mach_absolute_time': 2, 'mach_timebase_info': 2,
+_REVIEW_API_GROUPS = {
+    'dynamic_resolution': ('dlopen', 'dlsym', 'objc_getClass', 'sel_registerName',
+                           'NSClassFromString', 'NSSelectorFromString'),
+    'process_execution': ('popen', 'system', 'posix_spawn', 'posix_spawnp', 'execve', 'execvp'),
+    'network': ('socket', 'connect', 'send', 'sendto', 'recv', 'recvfrom', 'getaddrinfo',
+                'SSLWrite', 'SSLRead', 'curl_easy_perform', 'CFReadStreamCreateForHTTPRequest'),
+    'credentials': ('SecItemCopyMatching', 'SecKeychainFindGenericPassword',
+                    'SecKeychainFindInternetPassword', 'AuthorizationCreate', 'AuthorizationCopyRights'),
+    'files_and_persistence': ('open', 'fopen', 'read', 'write', 'unlink', 'rename', 'chmod',
+                             'SMJobBless', 'SMLoginItemSetEnabled', 'CFPreferencesSetValue'),
+    'memory_and_code': ('task_for_pid', 'mach_vm_write', 'mach_vm_protect', 'vm_write',
+                        'vm_protect', 'thread_create_running', 'mprotect'),
+    'data_processing': ('sqlite3_prepare_v2', 'sqlite3_step', 'CCCrypt', 'CCCryptorCreate',
+                        'SecKeyCreateEncryptedData', 'SecKeyCreateDecryptedData'),
+    'clipboard': ('PasteboardCopyItemFlavorData', 'PasteboardPutItemFlavor'),
+    'environment': ('sysctl', 'ptrace', 'proc_pidpath', 'dyld_image_count',
+                    'dyld_get_image_name', 'mach_absolute_time', 'mach_timebase_info'),
 }
+_REVIEW_API_CLASS = {name: group for group, names in _REVIEW_API_GROUPS.items() for name in names}
+_ENTRY_NAMES = frozenset(('main', 'start', 'entry'))
+
+
+def _api_review_order(procedures):
+    """Interleave provider-observed API classes before spending a bounded query budget."""
+    groups = {name: [] for name in _REVIEW_API_GROUPS}
+    for row in procedures:
+        group = _REVIEW_API_CLASS.get(row['value'].lstrip('_'))
+        if group is not None:
+            groups[group].append(row)
+    active = deque((group, iter(sorted(rows, key=lambda row: row['address'])))
+                   for group, rows in groups.items() if rows)
+    while active:
+        group, rows = active.popleft()
+        row = next(rows, None)
+        if row is not None:
+            yield group, row
+            active.append((group, rows))
 
 
 def _internal_procedure(row):
@@ -312,10 +341,16 @@ async def _analyze_slice(session, source, info, limits, options):
                         pending.append((address, [edge, *path]))
                     continue
                 procedure = value(containing)['procedure']
+                classification = procedure.get('classification') or {}
+                if classification.get('external') or classification.get('thunk') or ':' in procedure['address']:
+                    continue
                 candidate = candidates.setdefault(procedure['address'], {
-                    'procedure': procedure, 'references': [], 'findings': {}, 'selection_reasons': []})
+                    'procedure': procedure, 'references': [], 'findings': {}, 'selection_reasons': [],
+                    'selection_sources': []})
                 candidate['findings'].update({finding['id']: finding for finding in evidence_findings[record['id']]})
                 candidate['selection_reasons'].append('indicator_reference')
+                candidate['selection_sources'].append({'reason': 'indicator_reference',
+                    'evidence_id': eid(containing), 'string_evidence_id': record['id']})
                 candidate['references'].append({'evidence_id': record['id'], 'instruction_address': address,
                     'target_address': record['address'], 'xref_evidence_id': eid(xrefs),
                     'containment_evidence_id': eid(containing), 'reference_path': [edge, *path]})
@@ -328,41 +363,89 @@ async def _analyze_slice(session, source, info, limits, options):
     procedures = value(procedures_evidence) if procedures_evidence else []
     internal = {row['address']: row for row in procedures if _internal_procedure(row)}
 
-    def seed(address, reason):
+    attempted_addresses = set()
+
+    def seed(address, reason, evidence_id, **source):
         row = internal.get(address)
-        if row is None:
+        if row is None or address in attempted_addresses:
             return
         candidate = candidates.setdefault(address, {
             'procedure': {'address': address, 'name': row['value'], 'classification': None,
                           'body': {'available': False, 'ranges': []}},
-            'references': [], 'findings': {}, 'selection_reasons': []})
-        candidate['selection_reasons'].append(reason)
+            'references': [], 'findings': {}, 'selection_reasons': [], 'selection_sources': []})
+        if reason not in candidate['selection_reasons']:
+            candidate['selection_reasons'].append(reason)
+        selection_source = {'reason': reason, 'evidence_id': evidence_id, **source}
+        if selection_source not in candidate['selection_sources']:
+            candidate['selection_sources'].append(selection_source)
+        return candidate
 
-    # Inspect executable code even when the initial heuristics have no finding.
-    # API callers and baseline procedures are observations, with zero added risk.
-    api_procedures = sorted((row for row in procedures if row['value'].lstrip('_') in _REVIEW_APIS),
-                            key=lambda row: (_REVIEW_APIS[row['value'].lstrip('_')], row['address']))
-    for row in api_procedures[:BASELINE_FUNCTIONS]:
-        callers = await session.call('procedure_callers', {'procedure': row['address']}, required=False)
-        for address in (value(callers) if callers else [])[:BASELINE_FUNCTIONS]:
-            seed(address, 'sensitive_api_caller')
-    baseline = sorted(internal.values(), key=lambda row: (row['value'].lstrip('_') not in ('main', 'start', 'entry'), row['address']))
-    for row in baseline[:BASELINE_FUNCTIONS]:
-        seed(row['address'], 'baseline_code_review')
-    functions = []
-    review = sorted((address for address, candidate in candidates.items()
-                     if any(reason in candidate['selection_reasons'] for reason in ('baseline_code_review', 'sensitive_api_caller'))),
-                    key=lambda address: (
-                        candidates[address]['procedure']['name'].lstrip('_') not in ('main', 'start', 'entry'),
-                        'sensitive_api_caller' not in candidates[address]['selection_reasons'], address))
-    reserved = review[:min(BASELINE_FUNCTIONS, options.max_decompiled_functions)]
-    queue = reserved + sorted((address for address in candidates if address not in reserved),
-                              key=lambda address: -sum(f['weight'] for f in candidates[address]['findings'].values()))
-    callee_count = 0
-    attempted, inspection_failures = 0, 0
-    for address in queue:
-        if attempted >= options.max_decompiled_functions:
+    # Entry names get priority; the complete provider roster remains a lazy
+    # fallback so large binaries do not duplicate every procedure into a heap.
+    for row in internal.values():
+        if row['value'].lstrip('_') in _ENTRY_NAMES:
+            seed(row['address'], 'entry_name_review', eid(procedures_evidence))
+
+    api_procedures = list(_api_review_order(procedures))
+    api_queries, api_query_failures = 0, 0
+    api_class_ranks = {group: index for index, group in enumerate(_REVIEW_API_GROUPS)}
+    for group, row in api_procedures:
+        if examined_references >= limits.max_references:
+            reference_limit = True
             break
+        if api_queries >= options.max_decompiled_functions:
+            break
+        api_queries += 1
+        callers = await session.call('procedure_callers', {'procedure': row['address']}, required=False)
+        if callers is None:
+            api_query_failures += 1
+            continue
+        for rank, address in enumerate(value(callers)):
+            if examined_references >= limits.max_references:
+                reference_limit = True
+                break
+            examined_references += 1
+            candidate = seed(address, 'sensitive_api_caller', eid(callers),
+                             api_address=row['address'], api_name=row['value'], api_class=group)
+            if candidate is not None:
+                candidate['api_review_rank'] = min(candidate.get('api_review_rank', (rank, api_class_ranks[group])),
+                                                   (rank, api_class_ranks[group]))
+
+    def priority(address):
+        candidate = candidates[address]
+        reasons = candidate['selection_reasons']
+        weight = sum(f['weight'] for f in candidate['findings'].values())
+        tier = (0 if 'entry_name_review' in reasons else 1 if weight else
+                2 if 'sensitive_api_caller' in reasons else 3 if 'indicator_reference' in reasons else
+                4 if any(reason in reasons for reason in ('provider_caller', 'provider_callee')) else 5)
+        return tier, -weight, candidate.get('api_review_rank', (0, 0)), int(address, 16)
+
+    queue, queued_priorities = [], {}
+
+    def schedule(address):
+        if address in attempted_addresses:
+            return
+        key = priority(address)
+        if queued_priorities.get(address) != key:
+            queued_priorities[address] = key
+            heapq.heappush(queue, (key, address))
+
+    for address in candidates:
+        schedule(address)
+    remaining_inventory = iter(internal)
+    functions = []
+    attempted, inspection_failures = 0, 0
+    while attempted < options.max_decompiled_functions:
+        if not queue:
+            address = next((address for address in remaining_inventory if address not in attempted_addresses), None)
+            if address is None:
+                break
+            seed(address, 'baseline_code_review', eid(procedures_evidence))
+            schedule(address)
+        key, address = heapq.heappop(queue)
+        if address in attempted_addresses or key != queued_priorities[address]:
+            continue
+        attempted_addresses.add(address)
         attempted += 1
         candidate = candidates[address]
         dossier_evidence = await session.call('analyze_function', {'procedure': address}, required=False)
@@ -380,6 +463,7 @@ async def _analyze_slice(session, source, info, limits, options):
                     'finding_ids': sorted(candidate['findings']),
                     'classification': 'suspected_behavior_related' if any(f['weight'] for f in candidate['findings'].values()) else 'review_context',
                     'selection_reasons': sorted(set(candidate['selection_reasons'])),
+                    'selection_sources': candidate['selection_sources'],
                     'rea_evidence_id': eid(dossier_evidence) if dossier_evidence else None,
                     'direct_calls': dossier['callees'] if dossier else None,
                     'unresolved_calls': dossier.get('unresolved_calls') if dossier else None,
@@ -424,23 +508,32 @@ async def _analyze_slice(session, source, info, limits, options):
             function['references'].append(ref)
         functions.append(function)
         if dossier:
-            for callee in dossier['callees']:
-                child = callee['address']
-                if child in internal and child not in candidates and callee_count < CALLEE_FUNCTIONS:
-                    seed(child, 'direct_callee')
-                    queue.append(child)
-                    callee_count += 1
+            for direction, reason in (('callees', 'provider_callee'), ('callers', 'provider_caller')):
+                for neighbor in dossier.get(direction) or []:
+                    if examined_references >= limits.max_references:
+                        reference_limit = True
+                        break
+                    examined_references += 1
+                    if seed(neighbor['address'], reason, eid(dossier_evidence), source_address=address) is not None:
+                        schedule(neighbor['address'])
+    eligible_functions = len(internal) + sum(address not in internal for address in candidates)
     return {'strings': strings, 'findings': findings, 'functions': functions,
             'coverage': {'string_inventory_count': len(rows), 'strings_retained': len(strings),
                          'strings_complete_over_provider_inventory': len(rows) == len(strings),
-                         'candidate_functions': len(candidates), 'functions_inspected': len(functions),
+                         'candidate_functions': eligible_functions, 'functions_inspected': len(functions),
                          'functions_attempted': attempted, 'function_inspection_failures': inspection_failures,
                          'procedure_inventory_count': len(internal) if procedures_evidence else None,
-                         'functions_not_selected': max(0, len(internal) - len(candidates)) if procedures_evidence else None,
-                         'functions_omitted': max(0, len(candidates) - len(functions)),
+                         'functions_not_selected': len(internal.keys() - attempted_addresses) if procedures_evidence else None,
+                         'functions_not_attempted': eligible_functions - len(attempted_addresses),
+                         'function_budget_exhausted': len(attempted_addresses) < eligible_functions
+                                                      and attempted >= options.max_decompiled_functions,
+                         'functions_omitted': max(0, eligible_functions - len(functions)),
+                         'api_procedure_count': len(api_procedures), 'api_caller_queries': api_queries,
+                         'api_caller_query_failures': api_query_failures,
+                         'api_caller_queries_omitted': len(api_procedures) - api_queries,
                          'references_examined': examined_references, 'reference_budget_exhausted': reference_limit,
                          'pseudocode_available': sum(bool(function['pseudocode']) for function in functions),
-                         'selection': 'REA indicator references, API callers, baseline procedures and bounded direct callees'}}
+                         'selection': 'Complete internal REA procedure roster, prioritized by entry names, indicator references, API classes and observed callers/callees; bounded inspection attempts'}}
 
 
 def _remove_owned_files(owned, cleanup):

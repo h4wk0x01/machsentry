@@ -89,13 +89,33 @@ class ConfigTests(unittest.TestCase):
 
     def test_claim_limits_are_clamped(self):
         raw = support.raw_claim()
-        raw['limits']['staticSeconds'] = 99999
-        raw['ai']['maxOutputTokensPerJob'] = 10 ** 9
+        raw['limits'] = {key: 10 ** 12 for key in raw['limits']}
+        for key in ('maxCalls', 'maxInputTokensPerCall', 'maxOutputTokensFirstCall', 'maxOutputTokensPerJob'):
+            raw['ai'][key] = 10 ** 12
         claim = parse_claim(raw)
-        self.assertEqual((claim.limits['staticSeconds'], claim.ai['maxOutputTokensPerJob']), (900, 8000))
+        self.assertEqual(claim.limits, {'staticSeconds': 1200, 'aiSeconds': 540, 'finalizeSeconds': 120,
+                                       'maxFunctions': 128, 'memoryBytes': 3 * 1024 ** 3,
+                                       'pids': 256, 'diskBytes': 4 * 1024 ** 3})
+        self.assertEqual({key: claim.ai[key] for key in
+                          ('maxCalls', 'maxInputTokensPerCall', 'maxOutputTokensFirstCall', 'maxOutputTokensPerJob')},
+                         {'maxCalls': 12, 'maxInputTokensPerCall': 40_000,
+                          'maxOutputTokensFirstCall': 6_000, 'maxOutputTokensPerJob': 16_000})
         raw['id'] = '../escape'
         with self.assertRaises(ClaimInvalid):
             parse_claim(raw)
+
+    def test_claim_preserves_site_v4_and_v5_grants_below_worker_ceilings(self):
+        for version, static, ai_seconds, functions, calls, first_output, total_output in (
+                ('v4', 900, 180, 64, 2, 6000, 8000),
+                ('v5', 1200, 540, 128, 12, 4000, 16000)):
+            with self.subTest(version=version):
+                raw = support.raw_claim()
+                raw['limits'].update(staticSeconds=static, aiSeconds=ai_seconds, maxFunctions=functions)
+                raw['ai'].update(promptVersion=f'unpacked-analysis-ai-{version}', maxCalls=calls,
+                                 maxOutputTokensFirstCall=first_output, maxOutputTokensPerJob=total_output)
+                claim = parse_claim(raw)
+                self.assertEqual(claim.limits, raw['limits'])
+                self.assertEqual(claim.ai, raw['ai'])
 
 
 class LogTests(unittest.TestCase):

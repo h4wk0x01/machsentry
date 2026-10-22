@@ -31,7 +31,7 @@ CAPS = {
     'report.json': 32 * MIB,
     'detection.yar': 256 * KIB,
     'candidate-rejected.yar.txt': 256 * KIB,
-    'ai-assessment.json': 256 * KIB,
+    'ai-assessment.json': MIB,
 }
 PSEUDOCODE_BYTES = 64 * KIB
 _HEADER = re.compile(r'^[A-Za-z0-9-]{1,64}$')
@@ -61,13 +61,16 @@ def functions_json(report: dict) -> bytes:
         entries = []
         for function in functions:
             pseudocode = function.get('pseudocode') if isinstance(function.get('pseudocode'), str) else None
+            source_digest = sha256(pseudocode.encode('utf-8')).hexdigest() if pseudocode is not None else None
+            source_characters = len(pseudocode) if pseudocode is not None else None
             truncated = False
             if pseudocode is not None:
                 pseudocode, truncated = _clip_utf8(pseudocode, cap)
             entries.append({'architecture': function.get('architecture'), 'slice': function.get('slice'),
                             'address': function.get('address'), 'names': function.get('names') or [],
                             'findingIds': function.get('finding_ids') or [], 'pseudocode': pseudocode,
-                            'pseudocodeTruncated': truncated})
+                            'pseudocodeTruncated': truncated, 'pseudocodeSha256': source_digest,
+                            'pseudocodeCharacters': source_characters})
         data = _json(entries)
         if len(data) <= CAPS['functions.json']:
             return data

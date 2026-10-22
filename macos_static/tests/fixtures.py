@@ -2,16 +2,17 @@
 import struct
 
 
-def multi_function_fixture(architecture='x86_64'):
+def multi_function_fixture(architecture='x86_64', *, literals=None):
     """Functions return pointers to test data; no imports, syscalls or execution."""
-    literals = [
+    literals = literals if literals is not None else [
         b'TEST DATA ONLY: display dialog "Inert fixture" with hidden answer',
         b'TEST DATA ONLY: security find-generic-password -ga "Inert fixture"',
         b'TEST DATA ONLY: POST /synthetic-test HTTP/1.1 multipart/form-data',
         b'TEST DATA ONLY: browser Login Data and /Cookies paths',
         b'TEST DATA ONLY: /.electrum/wallets/ and Exodus/exodus.wallet/',
     ]
-    base, code_offset, string_offset, stride = 0x100000000, 512, 1024, 64
+    base, code_offset, stride = 0x100000000, 512, 64
+    string_offset = max(1024, ((code_offset + stride * len(literals) + 255) // 256) * 256)
     strings, code, symbols, names = b'', bytearray(stride * len(literals)), b'', b'\0'
     for index, literal in enumerate(literals):
         start = base + code_offset + stride * index

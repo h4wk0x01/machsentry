@@ -1,11 +1,9 @@
 """AI interpretation stage under site-granted budgets (contract section 8).
 
 Each call is reserved through the site first, with a conservative byte count, and every grant is
-settled. At most two calls run: the second corrects a schema or reference failure, or the writing
-problems `writing_issues` finds in a valid output, with the output budget left by the first. A
-writing correction never costs the analyst the first output: if it cannot run or fails, the first
-output is published. No call happens without a grant, and an uncertain call (usage_unknown) is
-never repeated.
+settled. Version 5 reviews bounded code batches and synthesizes their verified citations.
+Version 4 retains its original interpretation and optional correction. No call happens without
+a grant, and an uncertain call (usage_unknown) is never repeated.
 """
 
 from dataclasses import dataclass, field
@@ -21,7 +19,8 @@ from .job import Claim
 from .logs import log
 from .site_api import LeaseLost, SiteError
 
-PROMPT_VERSION = 'unpacked-analysis-ai-v4'
+PROMPT_VERSION = 'unpacked-analysis-ai-v5'
+LEGACY_PROMPT_VERSION = 'unpacked-analysis-ai-v4'
 ASSESSMENT_SCHEMA = 'unpacked-analysis-ai/1'
 RESERVATION_OVERHEAD = 256
 MIN_CALL_SECONDS = 60
@@ -170,11 +169,15 @@ class AiStageResult:
     cached_input_tokens: int = 0
     output_tokens: int = 0
     cost_micros: int = 0
+    review: dict | None = None
 
     def assessment(self) -> dict:
-        return {'schema': ASSESSMENT_SCHEMA, 'status': self.status, 'locale': self.locale, 'model': self.model,
+        value = {'schema': ASSESSMENT_SCHEMA, 'status': self.status, 'locale': self.locale, 'model': self.model,
                 'promptVersion': self.prompt_version, 'priceVersion': self.price_version, 'calls': self.calls,
                 'output': self.output, 'validationErrors': self.validation_errors}
+        if self.review is not None:
+            value['review'] = self.review
+        return value
 
 
 class _Denied(Exception):
@@ -199,12 +202,15 @@ class AiStage:
         if self.api_key is None:
             result.error_code = 'api_key_missing'
             return result
-        if grant['promptVersion'] != PROMPT_VERSION:
+        if grant['promptVersion'] not in (PROMPT_VERSION, LEGACY_PROMPT_VERSION):
             result.error_code = 'prompt_version_mismatch'
             return result
         if self.configured_model and self.configured_model != grant['model']:
             result.error_code = 'model_mismatch'
             return result
+        if grant['promptVersion'] == PROMPT_VERSION:
+            from .semantic_review import run_review
+            return run_review(self, claim, report, result, deadline, cancelled)
         text = instructions(claim.locale)
         schema_text = dumps(text_format())
         overhead = len(text.encode()) + len(schema_text.encode()) + RESERVATION_OVERHEAD
@@ -322,6 +328,9 @@ class AiStage:
             log('ai_reserve_denied', jobId=claim.id, attempt=claim.attempt, callIndex=index, reason=reason)
             raise _Denied(reason if reason in _BUDGET_REASONS | {'model_not_allowed'} else 'reserve_failed')
         body = ai.request_body(claim.ai['model'], text, input_text, max_output)
+        body['text']['format'] = json.loads(schema_text)
+        if claim.ai['promptVersion'] == PROMPT_VERSION:
+            body['reasoning'] = {'effort': 'medium'}
         response = self.call(self.api_key, body, url=self.url, timeout=min(ai.TIMEOUT_SECONDS, remaining - 5),
                              client_request_id=call_id)
         log('ai_call', jobId=claim.id, attempt=claim.attempt, callIndex=index, outcome=response.outcome,

@@ -538,3 +538,31 @@ provisionamento, deploy do site ou chamada de IA de análise. Próxima entrega:
 e IA limitada. O guia de continuidade vinculado no início organiza a execução
 no outro computador e deve ser atualizado após cada marco verificado. O plano
 não confirma que o servidor já esteja pronto para receber uploads.
+
+## 2026-10-22: general function review (0.5.0)
+
+The REA inventory now remains eligible after entry points and prioritized API,
+indicator and call-graph references. The Unpacked worker grants up to128
+inspection attempts per architecture,20minutes static,9minutes AI and2minutes
+publication. The AI stage also enforces its own duration when static analysis
+finishes early.
+
+Prompt unpacked-analysis-ai-v5 partitions full captured pseudocode, reviews
+bounded batches and independently synthesizes exact source citations. It
+preserves version4 for existing grants. Review coverage counts validated
+responses, hashes complete UTF8 sources and retains provider limitations and
+facet availability. A semantic classification accompanies the original
+heuristic score. Incomplete review stays explicit.
+
+Limits:12calls,40k conservative input tokens/call,4k first output,16k output/job,
+US$0.10/job,US$0.75/account/month,US$5/day andUS$40/month globally. Free jobs
+remain bounded by their shared quota. See Unpacked docs/ANALYSIS-CODE-REVIEW.md.
+
+Local evidence:73static tests and202worker tests pass(one platform skip in
+each suite). An inert40function fixture improved from16to40decompiled functions;
+28.142to32.275seconds,one Windows measurement per version. Paid model regression
+and AWS acceptance are recorded separately after execution. The opt-in
+scripts/verify-machsentry-semantic-ai.py uses six inert code-text cases, a
+persistent evaluation ledger and aUS$0.10cap. Run only with admissions drained
+and the current global spending snapshot. It evaluates model interpretation,
+not binary extraction or population accuracy.
