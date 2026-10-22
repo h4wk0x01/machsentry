@@ -82,7 +82,8 @@ def instructions(locale, *, synthesis=False):
         'The classification rationale explains the effect and key condition. '
         'The legacy summary/behaviors/techniques/functions describe the same conclusion. Behaviors and '
         'techniques require evidence_ids from engine_context strings[].id or findings[].id. When unavailable, '
-        'put code-supported effects in classification, summary and functions (empty evidence_ids allowed). '
+        'behaviors MUST be [] and techniques MUST be []. Put code-supported effects in classification, summary '
+        'and functions (empty evidence_ids allowed for functions). '
         'Function references must match a supplied verified architecture/address. At most32 function '
         'annotations; the separate coverage ledger records every reviewed function. No invented MITRE IDs. '
         'Every required array may be empty. Keep the final response concise. '
@@ -284,7 +285,15 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
                          else 'failed' if stopped not in (None, 'invalid_batch') else 'invalid')
         return result
     prompt = instructions(claim.locale, synthesis=True)
-    schema = format_schema(FINAL_SCHEMA, 'unpacked_code_review_synthesis_v1')
+    final_schema = deepcopy(FINAL_SCHEMA)
+    # Code references have their own validated channel. Empty engine findings cannot supply
+    # legacy string/finding citations; constrain those optional facets at the producing schema.
+    if not report.get('findings'):
+        for section in ('behaviors', 'techniques'):
+            final_schema['properties'][section]['maxItems'] = 0
+    for section in ('behaviors', 'techniques'):
+        final_schema['properties'][section]['items']['properties']['evidence_ids']['minItems'] = 1
+    schema = format_schema(final_schema, 'unpacked_code_review_synthesis_v1')
     ceiling = grant['maxInputTokensPerCall'] - len(prompt.encode()) - len(schema.encode()) - RESERVATION_OVERHEAD
     for compact in (False, True):
         verified, omissions, allowed_reviews = synthesis_reviews(reviews, compact)
