@@ -406,6 +406,17 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(result.review['coverage']['reviewed_functions'], 0)
         self.assertFalse(result.review['coverage']['all_inventory_code_reviewed'])
 
+    def test_no_findings_constrains_legacy_facets_and_keeps_code_classification(self):
+        result, model = self.run_stage(code_report(['void f(){ copy_user_selection(); }']),
+                                       ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
+        self.assertEqual(result.status, 'completed')
+        schema = model.requests[-1]['text']['format']['schema']['properties']
+        self.assertEqual(schema['behaviors']['maxItems'], 0)
+        self.assertEqual(schema['techniques']['maxItems'], 0)
+        self.assertEqual(schema['functions']['items']['properties']['evidence_ids']['maxItems'], 0)
+        self.assertEqual(schema['behaviors']['items']['properties']['evidence_ids']['minItems'], 1)
+        self.assertEqual(result.review['verdict'], BENIGN)
+
     def test_legacy_v4_remains_single_call_low_reasoning_without_semantic_review(self):
         self.claim = replace(self.claim, ai={**self.claim.ai, 'promptVersion': 'unpacked-analysis-ai-v4',
                                            'maxCalls': 2, 'maxOutputTokensPerJob': 8000})

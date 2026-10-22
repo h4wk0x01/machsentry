@@ -286,6 +286,9 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
         return result
     prompt = instructions(claim.locale, synthesis=True)
     final_schema = deepcopy(FINAL_SCHEMA)
+    # Function annotations are already bound to verified provider identities; v5 code
+    # citations live in classification.evidence. Avoid a second, incompatible citation channel.
+    final_schema['properties']['functions']['items']['properties']['evidence_ids']['maxItems'] = 0
     # Code references have their own validated channel. Empty engine findings cannot supply
     # legacy string/finding citations; constrain those optional facets at the producing schema.
     if not report.get('findings'):
