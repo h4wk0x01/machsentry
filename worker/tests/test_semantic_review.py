@@ -414,8 +414,30 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(schema['behaviors']['maxItems'], 0)
         self.assertEqual(schema['techniques']['maxItems'], 0)
         self.assertEqual(schema['functions']['items']['properties']['evidence_ids']['maxItems'], 0)
+        self.assertEqual(schema['functions']['maxItems'], 0)
         self.assertEqual(schema['behaviors']['items']['properties']['evidence_ids']['minItems'], 1)
         self.assertEqual(result.review['verdict'], BENIGN)
+
+    def test_twenty_four_function_notes_are_retained_without_duplicate_synthesis_annotations(self):
+        self.claim = replace(self.claim, ai={**self.claim.ai, 'maxOutputTokensFirstCall': 6000})
+        result, model = self.run_stage(code_report(['return 0;'] * 24),
+            ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
+        self.assertEqual(result.status, 'completed')
+        self.assertEqual(result.review['coverage']['reviewed_functions'], 24)
+        self.assertTrue(result.review['coverage']['all_inventory_code_reviewed'])
+        self.assertTrue(all(item['summary'] for item in result.review['functions']))
+        self.assertEqual(result.output['functions'], [])
+        self.assertEqual(model.requests[-1]['text']['format']['schema']['properties']['functions']['maxItems'], 0)
+        self.assertEqual(model.requests[-1]['max_output_tokens'], 6000)
+
+    def test_synthesis_rejects_duplicate_function_annotations_outside_v5_schema(self):
+        def mutate(value, document, synthesis, index):
+            if synthesis:
+                value['functions'] = [{'architecture': 'arm64', 'address': '0x100000100',
+                    'title': 'Repeated note', 'explanation': 'Already retained.', 'evidence_ids': []}]
+        result, _ = self.run_stage(code_report(['return 0;']), ScriptedModel(mutate=mutate))
+        self.assertEqual(result.review['coverage']['stopped_reason'], 'invalid_synthesis')
+        self.assertFalse(result.review['synthesis_validated'])
 
     def test_legacy_v4_remains_single_call_low_reasoning_without_semantic_review(self):
         self.claim = replace(self.claim, ai={**self.claim.ai, 'promptVersion': 'unpacked-analysis-ai-v4',

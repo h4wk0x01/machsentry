@@ -31,6 +31,9 @@ BATCH_SCHEMA = obj({'chunks': arr(obj({
     'evidence': arr(_PROOF, 4), 'counter_evidence': arr(_TEXT, 4), 'gaps': arr(_TEXT, 4),
 }), 8)})
 FINAL_SCHEMA = deepcopy(OUTPUT_SCHEMA)
+# Function notes already exist in the verified coverage ledger. Repeating every
+# note in the synthesis can truncate its actual classification on larger jobs.
+FINAL_SCHEMA['properties']['functions']['maxItems'] = 0
 FINAL_SCHEMA['properties']['classification'] = obj({
     'verdict': _VERDICT, 'confidence': {'type': 'string', 'enum': ['low', 'medium', 'high']},
     'rationale': _TEXT, 'evidence': arr(obj({'chunk_id': _TEXT, 'quote': _TEXT, 'statement': _TEXT}), 24),
@@ -80,12 +83,12 @@ def instructions(locale, *, synthesis=False):
         'and no suspicious or malicious per-function results. Otherwise choose inconclusive unless exact '
         'code supports a positive harmful verdict. Confidence describes evidence strength, not a probability. '
         'The classification rationale explains the effect and key condition. '
-        'The legacy summary/behaviors/techniques/functions describe the same conclusion. Behaviors and '
+        'The legacy summary/behaviors/techniques describe the same conclusion. Behaviors and '
         'techniques require evidence_ids from engine_context strings[].id or findings[].id. When unavailable, '
         'behaviors MUST be [] and techniques MUST be []. Put code-supported effects in classification, summary '
-        'and functions (empty evidence_ids allowed for functions). '
-        'Function references must match a supplied verified architecture/address. At most32 function '
-        'annotations; the separate coverage ledger records every reviewed function. No invented MITRE IDs. '
+        'and summary. Return functions: []; verified per-function summaries are already retained in the '
+        'coverage ledger and must not be repeated here. Choose the strongest source quotes for the '
+        'classification rather than one quote per routine. No invented MITRE IDs. '
         'Every required array may be empty. Keep the final response concise. '
     )
 
@@ -246,7 +249,7 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
     input_budget = grant['maxInputTokensPerCall'] - len(prompt.encode()) - len(schema.encode()) - RESERVATION_OVERHEAD
     plan = plan_reviews(report, claim.sample, claim.locale, max(0, input_budget), max_chunks_per_batch=4)
     reviews, stopped, safe_to_call = [], None, True
-    synthesis_tokens = min(4000, grant['maxOutputTokensFirstCall'], grant['maxOutputTokensPerJob'])
+    synthesis_tokens = min(6000, grant['maxOutputTokensFirstCall'], grant['maxOutputTokensPerJob'])
     for batch in plan.batches:
         if len(result.calls) >= grant['maxCalls'] - 1:
             stopped = 'max_calls'
@@ -366,6 +369,8 @@ def validate_synthesis(value, reviews, selection, keys):
         return None
     classification = value['classification']
     output = {key: item for key, item in value.items() if key != 'classification'}
+    if output.get('functions') != []:
+        return None
     if validate(output, selection.evidence_ids, selection.finding_ids, keys):
         return None
     if (not isinstance(classification, dict) or set(classification) != set(FINAL_SCHEMA['properties']['classification']['properties'])

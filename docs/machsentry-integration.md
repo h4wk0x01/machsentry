@@ -558,7 +558,7 @@ Limits: 12 calls, 40k conservative input tokens/call, 6k first output, 16k outpu
 US$ 0.10/job, US$ 0.75/account/month, US$ 5/day and US$ 40/month globally. Free jobs
 remain bounded by their shared quota. See Unpacked docs/ANALYSIS-CODE-REVIEW.md.
 
-Local evidence: 73 static tests and 202 worker tests pass (one platform skip in
+Local evidence: 73 static tests and 207 worker tests pass (one platform skip in
 each suite). An inert 40-function fixture improved from 16 to 40 decompiled functions;
 28.142 to 32.275 seconds, one Windows measurement per version. Paid model regression
 and AWS acceptance are recorded separately after execution. The opt-in
@@ -566,3 +566,24 @@ scripts/verify-machsentry-semantic-ai.py uses six inert code-text cases, a
 persistent evaluation ledger and a US$ 0.10 cap. Run only with admissions drained
 and the current global spending snapshot. It evaluates model interpretation,
 not binary extraction or population accuracy.
+
+Paid API regression accepted all six inert routines and the independently
+validated synthesis: three calls, 7,198 input tokens, 4,669 output tokens,
+US$ 0.026410. Five development rounds cost US$ 0.114602 in total, entered in
+the service's shared ledger. The actual site adapter also accepted the source
+citations from that run.
+
+AWS bootstrap installed commit fb1fa337c3640114c2743b08b0d882266a04cd8a,
+image sha256:0159c8bcd0e757c9810ea2c8cd01629f6594b2e695995242c8e6e0adcf46bfa6.
+The native REA/Ghidra fixture verification passed in 105.105 seconds, with
+180.333 CPU seconds and 1,218,899,968 peak resident bytes. Bootstrap took
+543 seconds; CPU credits returned to standard and maintenance was removed.
+The old image remains available for rollback. The Unpacked handoff records
+the separate upload/queue/AI/publication acceptance and current admission state.
+
+The first 24-function service acceptance retained every reviewed function, but
+the synthesis repeated function notes and reached its output ceiling. Version 5
+now keeps those notes solely in the verified ledger, constrains the final legacy
+functions array to empty and reserves up to 6k tokens for the synthesis within
+the same 16k/job and US$ 0.10 ceilings. Contract tests cover 24 notes, absence of
+duplicate annotations and the final output reservation.
