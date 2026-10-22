@@ -558,7 +558,7 @@ Limits: 12 calls, 40k conservative input tokens/call, 6k first output, 16k outpu
 US$ 0.10/job, US$ 0.75/account/month, US$ 5/day and US$ 40/month globally. Free jobs
 remain bounded by their shared quota. See Unpacked docs/ANALYSIS-CODE-REVIEW.md.
 
-Local evidence: 73 static tests and 207 worker tests pass (one platform skip in
+Local evidence: 73 static tests and 210 worker tests pass (one platform skip in
 each suite). An inert 40-function fixture improved from 16 to 40 decompiled functions;
 28.142 to 32.275 seconds, one Windows measurement per version. Paid model regression
 and AWS acceptance are recorded separately after execution. The opt-in
@@ -587,3 +587,23 @@ now keeps those notes solely in the verified ledger, constrains the final legacy
 functions array to empty and reserves up to 6k tokens for the synthesis within
 the same 16k/job and US$ 0.10 ceilings. Contract tests cover 24 notes, absence of
 duplicate annotations and the final output reservation.
+
+Correction ea35a26039fe84f2c3daaf0c23498d5b89077493 was installed by SSM command
+53db82a3-6c62-4f89-9c75-91de96904030. Current image:
+sha256:f1bc5461fd21d1761028ea483f3ffaf7c51ceb1ea6fdfcbc1b23c1eaa5a4a4e4.
+The native verification passed in 113.291 seconds, with 193.932 CPU seconds
+and 1,260,630,016 peak resident bytes. Bootstrap took 634 seconds and ended
+with the instance stopped, standard CPU credits and no maintenance tag.
+Drain admissions and wait for the managed run to close and the EC2 to stop
+before bootstrapping: the earlier command expired without starting during an
+automatic shutdown. The deployment status command recovered that attempt.
+
+A second service acceptance reviewed 24/24 functions for US$ 0.046020, then
+the site rejected the worst-case 6k synthesis reservation. Version 5 now tries
+smaller output reservations (4k, then 2k) at the same call index after a
+job_budget denial. Rejected reservations send no provider request. A received
+or uncertain model response is never repeated, and global budget denials stop
+immediately. Tests verify the distinction and unchanged paid-call counts.
+The opt-in evaluation can replay an explicitly identified retained inert Ghidra
+report, preserving native pseudocode and provider context without another upload
+or another student credit. Operator costs still enter the shared service ledger.

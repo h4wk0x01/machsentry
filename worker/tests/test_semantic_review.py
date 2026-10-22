@@ -439,6 +439,40 @@ class SemanticReviewTests(unittest.TestCase):
         self.assertEqual(result.review['coverage']['stopped_reason'], 'invalid_synthesis')
         self.assertFalse(result.review['synthesis_validated'])
 
+    def test_synthesis_reduces_rejected_reservation_without_repeating_a_paid_call(self):
+        self.claim = replace(self.claim, ai={**self.claim.ai, 'maxOutputTokensFirstCall': 6000})
+        reserve = self.site.ai_reserve
+        def bounded(*args):
+            result = reserve(*args)
+            return {'granted': False, 'reason': 'job_budget'} if args[3] == 6 and args[5] > 4000 else result
+        self.site.ai_reserve = bounded
+        result, model = self.run_stage(code_report(['return 0;'] * 24),
+            ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
+        self.assertEqual(result.status, 'completed')
+        self.assertTrue(result.review['synthesis_validated'])
+        self.assertEqual(len(model.requests), 7)
+        self.assertEqual(len(self.site.settlements), 7)
+        self.assertEqual([r['output_tokens'] for r in self.site.reservations[-2:]], [6000, 4000])
+        self.assertEqual([r['index'] for r in self.site.reservations[-2:]], [6, 6])
+        self.assertEqual(model.requests[-1]['max_output_tokens'], 4000)
+
+    def test_synthesis_still_blocked_at_minimum_reservation_spends_no_extra_call(self):
+        self.site.deny[1] = 'job_budget'
+        result, model = self.run_stage(code_report(['return 0;']),
+            ScriptedModel(batch_verdict=BENIGN, final_verdict=BENIGN))
+        self.assertEqual(result.review['coverage']['stopped_reason'], 'job_budget')
+        self.assertFalse(result.review['synthesis_validated'])
+        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(len(self.site.settlements), 1)
+        self.assertLessEqual(len(self.site.reservations), 4)
+
+    def test_global_budget_denial_does_not_negotiate_or_send_synthesis(self):
+        self.site.deny[1] = 'daily_budget'
+        result, model = self.run_stage(code_report(['return 0;']))
+        self.assertEqual(result.review['coverage']['stopped_reason'], 'daily_budget')
+        self.assertEqual(len(self.site.reservations), 2)
+        self.assertEqual(len(model.requests), 1)
+
     def test_legacy_v4_remains_single_call_low_reasoning_without_semantic_review(self):
         self.claim = replace(self.claim, ai={**self.claim.ai, 'promptVersion': 'unpacked-analysis-ai-v4',
                                            'maxCalls': 2, 'maxOutputTokensPerJob': 8000})

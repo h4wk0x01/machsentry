@@ -134,6 +134,10 @@ def main():
     parser.add_argument('--region', default='us-east-2')
     parser.add_argument('--global-day-micros', type=int, required=True)
     parser.add_argument('--global-month-micros', type=int, required=True)
+    parser.add_argument('--inert-provider-report', type=Path,
+                        help='Replay an operator-created inert Ghidra report, without reading its binary')
+    parser.add_argument('--expected-sha256', help='Required identity check for the retained provider fixture')
+    parser.add_argument('--locale', choices=('pt-BR', 'en-US'), default='en-US')
     args = parser.parse_args()
     if not 0 <= args.global_day_micros <= 5_000_000 or not 0 <= args.global_month_micros <= 40_000_000:
         parser.error('global spending snapshot outside the configured ceilings')
@@ -152,9 +156,31 @@ def main():
                             'functions_inspected': len(functions), 'functions_omitted': 0}]},
               'risk': {'value': 0, 'verdict': 'inconclusive'}, 'yara': {'status': 'not_generated'},
               'scripts': [], 'ioc_candidates': []}
-    (args.output / 'synthetic-input.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
-    claim = parse_claim({'id': 'semantic_eval', 'attempt': 1, 'leaseToken': 'operator-evaluation-only', 'locale': 'en-US',
-        'sample': {'name': 'INERT_SYNTHETIC_CODE_TEXT', 'sha256': '0' * 64, 'size': 1, 'architectures': ['arm64']},
+    sample = {'name': 'INERT_SYNTHETIC_CODE_TEXT', 'sha256': '0' * 64, 'size': 1, 'architectures': ['arm64']}
+    expected = [(f['architecture'], f['address'], name, verdict)
+                for f, (name, verdict, _) in zip(functions, CASES)]
+    scope = 'synthetic_code_text_model_regression_not_binary_accuracy'
+    input_name = 'synthetic-input.json'
+    if args.inert_provider_report:
+        if args.inert_provider_report.stat().st_size > 8 * 1024**2:
+            parser.error('retained provider report exceeds 8 MiB')
+        report = json.loads(args.inert_provider_report.read_text(encoding='utf-8'))
+        artifact = report.get('artifact') or {}
+        if not args.expected_sha256 or artifact.get('sha256') != args.expected_sha256:
+            parser.error('retained provider fixture SHA-256 does not match the explicit expected hash')
+        functions = report.get('functions') or []
+        if not functions:
+            parser.error('retained provider fixture has no functions')
+        architectures = list(dict.fromkeys(f['architecture'] for f in functions))
+        sample = {'name': 'retained_provider_fixture.macho', 'sha256': artifact['sha256'],
+                  'size': artifact['size_bytes'], 'architectures': architectures}
+        expected = [(f['architecture'], f['address'], (f.get('names') or [f['address']])[0],
+                     'no_malicious_behavior_observed') for f in functions]
+        scope = 'retained_inert_ghidra_code_replay_no_binary_execution'
+        input_name = 'provider-input.json'
+    (args.output / input_name).write_text(json.dumps(report, indent=2), encoding='utf-8')
+    claim = parse_claim({'id': 'semantic_eval', 'attempt': 1, 'leaseToken': 'operator-evaluation-only', 'locale': args.locale,
+        'sample': sample,
         'download': {'url': 'https://example.invalid/never-downloaded'},
         'deadlineAt': (datetime.now(timezone.utc) + timedelta(seconds=540)).isoformat(),
         'limits': {'staticSeconds': 1200, 'aiSeconds': 540, 'finalizeSeconds': 120, 'maxFunctions': 128,
@@ -174,11 +200,12 @@ def main():
 
     result = AiStage(ledger, Secret(key), MODEL, call=traced_call).run(claim, report, start + 540)
     (args.output / 'ai-assessment.json').write_text(json.dumps(result.assessment(), ensure_ascii=False, indent=2), encoding='utf-8')
-    actual = {item['address']: item['verdict'] for item in (result.review or {}).get('functions', [])}
-    cases = [{'name': name, 'expected': expected, 'actual': actual.get(functions[index]['address'])}
-             for index, (name, expected, _) in enumerate(CASES)]
+    actual = {(item['architecture'], item['address']): item['verdict']
+              for item in (result.review or {}).get('functions', [])}
+    cases = [{'name': name, 'architecture': architecture, 'address': address, 'expected': verdict,
+              'actual': actual.get((architecture, address))} for architecture, address, name, verdict in expected]
     verified = result.status == 'completed' and all(row['actual'] == row['expected'] for row in cases)
-    summary = {'verified': verified, 'scope': 'synthetic_code_text_model_regression_not_binary_accuracy',
+    summary = {'verified': verified, 'scope': scope,
                'model': MODEL, 'elapsed_seconds': round(time.monotonic() - start, 3), 'cases': cases,
                'status': result.status, 'code': result.error_code, 'calls': len(result.calls),
                'input_tokens': result.input_tokens, 'output_tokens': result.output_tokens, 'cost_micros': result.cost_micros,

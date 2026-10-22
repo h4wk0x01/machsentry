@@ -326,13 +326,22 @@ def _run_review(stage, claim, report, result, deadline, cancelled):
     if len(input_text.encode()) > ceiling:
         coverage['stopped_reason'] = 'synthesis_input_budget'
         return result
-    try:
-        response, settled = stage._call(claim, result, len(result.calls), prompt, input_text, schema,
-                                        synthesis_tokens, deadline, cancelled)
-    except _Denied as error:
-        coverage['stopped_reason'] = error.reason
-        result.error_code = error.reason
-        return result
+    # A reservation can exceed the remaining money even when the actual response
+    # would fit. A rejected reservation has sent nothing to the model. Negotiate
+    # a smaller output ceiling at the same call index, then send exactly once.
+    ceilings = list(dict.fromkeys((synthesis_tokens, min(synthesis_tokens, 4000), min(synthesis_tokens, 2000))))
+    call_index = len(result.calls)
+    for index, tokens in enumerate(ceilings):
+        try:
+            response, settled = stage._call(claim, result, call_index, prompt, input_text, schema,
+                                            tokens, deadline, cancelled)
+            break
+        except _Denied as error:
+            if error.reason == 'job_budget' and len(result.calls) == call_index and index + 1 < len(ceilings):
+                continue
+            coverage['stopped_reason'] = error.reason
+            result.error_code = error.reason
+            return result
     if not settled or response.outcome == 'usage_unknown':
         result.status, result.error_code = 'usage_unknown', 'usage_unknown'
         return result
